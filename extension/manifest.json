@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "TabScroll",
+  "version": "0.1.3",
+  "description": "A full-screen tab switcher that makes crowded browser sessions easier to navigate.",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "scripting",
+    "debugger"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/tabscroll-16.png",
+      "32": "icons/tabscroll-32.png",
+      "48": "icons/tabscroll-48.png"
+    },
+    "default_title": "Open TabScroll"
+  },
+  "commands": {
+    "toggle-tabscroll": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+K",
+        "mac": "Command+Shift+K"
+      },
+      "description": "Open TabScroll"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "overlay.html",
+        "overlay.css",
+        "overlay.js",
+        "icons/*"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icons/tabscroll-16.png",
+    "32": "icons/tabscroll-32.png",
+    "48": "icons/tabscroll-48.png",
+    "128": "icons/tabscroll-128.png"
+  }
+}
