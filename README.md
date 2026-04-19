@@ -1,6 +1,7 @@
 # TabScroll Extension
 
 Load the `extension/` directory as an unpacked Chromium extension.
+<img width="1905" height="1027" alt="image" src="https://github.com/user-attachments/assets/0bfce839-26f6-4c5a-a317-ef0ba9a97684" />
 
 What it does:
 
