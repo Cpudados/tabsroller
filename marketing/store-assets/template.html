@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TabScroll store assets</title>
+    <style>
+      :root { --ink:#06171c; --paper:#f3f1e8; --cyan:#75dbef; --lime:#d9ff70; }
+      * { box-sizing: border-box; }
+      html, body { width: 1280px; height: 800px; margin: 0; overflow: hidden; }
+      body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--ink); color: var(--paper); }
+      .slide { position: relative; display: none; width: 1280px; height: 800px; padding: 70px 76px; overflow: hidden; background: var(--ink); }
+      .slide.active { display: block; }
+      .grain { position:absolute; inset:0; opacity:.28; background-image:radial-gradient(rgba(255,255,255,.12) .7px, transparent .7px); background-size:6px 6px; mask-image:linear-gradient(to bottom,black,transparent 80%); }
+      .orb { position:absolute; width:650px; height:650px; border-radius:50%; filter:blur(10px); background:radial-gradient(circle,rgba(47,161,183,.32),transparent 66%); }
+      .brand { position:relative; z-index:3; display:flex; align-items:center; gap:12px; font-weight:850; font-size:20px; letter-spacing:-.04em; }
+      .mark { position:relative; width:34px; height:34px; }
+      .mark i { position:absolute; width:16px; height:20px; border:2px solid var(--cyan); border-radius:4px; }
+      .mark i:nth-child(1) { left:1px; top:12px; opacity:.45; }
+      .mark i:nth-child(2) { left:8px; top:7px; opacity:.72; }
+      .mark i:nth-child(3) { left:15px; top:2px; }
+      .kicker { position:relative; z-index:3; margin:72px 0 18px; color:var(--cyan); font-size:15px; font-weight:800; text-transform:uppercase; letter-spacing:.16em; }
+      h1 { position:relative; z-index:3; max-width:560px; margin:0; font-size:70px; line-height:.98; letter-spacing:-.07em; text-wrap:balance; }
+      h1 em { color:var(--lime); font-style:normal; }
+      .sub { position:relative; z-index:3; max-width:510px; margin:25px 0 0; color:#a8bbb8; font-size:20px; line-height:1.5; }
+      .shot { position:absolute; z-index:2; overflow:hidden; border:1px solid rgba(137,216,230,.27); border-radius:22px; background:#0b242b; box-shadow:0 45px 100px rgba(0,0,0,.5); }
+      .shot img { display:block; width:100%; height:100%; object-fit:cover; }
+      .browser-top { height:38px; display:flex; align-items:center; gap:6px; padding:0 13px; border-bottom:1px solid rgba(255,255,255,.08); background:#0a1f25; }
+      .browser-top i { width:7px; height:7px; border-radius:50%; background:#566e73; }
+      .browser-top i:first-child { background:#ff7b72; }
+      .browser-top span { width:42px; height:5px; margin-left:8px; border-radius:8px; background:rgba(255,255,255,.11); box-shadow:50px 0 rgba(255,255,255,.09),100px 0 rgba(255,255,255,.08),150px 0 rgba(255,255,255,.07); }
+      .shortcut-row { position:relative; z-index:3; display:flex; align-items:center; gap:9px; margin-top:30px; }
+      kbd { min-width:47px; padding:10px 12px; border:1px solid rgba(255,255,255,.2); border-bottom-width:3px; border-radius:9px; background:#102d34; color:#e9f1ed; text-align:center; font:700 13px ui-monospace,monospace; }
+      .arrow { color:var(--lime); font-size:22px; }
+      .pill-row { position:relative; z-index:3; display:flex; gap:10px; margin-top:30px; }
+      .pill { padding:9px 13px; border:1px solid rgba(255,255,255,.13); border-radius:999px; color:#abc0bd; font-size:13px; }
+
+      .slide-one .orb { right:-100px; top:-120px; }
+      .slide-one .shot { width:670px; height:458px; right:-42px; top:177px; transform:rotate(-2.2deg); }
+      .slide-one .shot img { height:420px; }
+      .slide-one::after { content:""; position:absolute; right:70px; bottom:54px; width:360px; height:24px; border-radius:50%; background:rgba(0,0,0,.55); filter:blur(20px); }
+
+      .slide-two { background:var(--paper); color:#10292f; }
+      .slide-two .grain { opacity:.16; filter:invert(1); }
+      .slide-two .brand { color:#10292f; }
+      .slide-two .kicker { color:#197991; }
+      .slide-two h1 { max-width:650px; }
+      .slide-two h1 em { color:#176d81; }
+      .slide-two .sub { color:#586d6e; }
+      .slide-two .shot { width:760px; height:475px; right:64px; bottom:-46px; border-color:rgba(14,55,64,.17); box-shadow:0 38px 90px rgba(20,53,59,.2); }
+      .slide-two .shot img { height:437px; }
+      .slide-two .focus-ring { position:absolute; z-index:4; right:291px; bottom:105px; width:308px; height:226px; border:4px solid #26a4c0; border-radius:15px; box-shadow:0 0 0 10px rgba(38,164,192,.14); }
+      .slide-two .callout { position:absolute; z-index:5; left:82px; bottom:92px; width:300px; padding:20px; border-radius:15px; background:#10292f; color:var(--paper); box-shadow:0 24px 55px rgba(9,37,43,.22); }
+      .slide-two .callout strong { display:block; margin-bottom:7px; color:var(--lime); font:800 14px ui-monospace,monospace; }
+      .slide-two .callout span { color:#c8d2ce; font-size:15px; line-height:1.45; }
+
+      .slide-three .orb { left:-180px; bottom:-260px; }
+      .slide-three h1 { max-width:760px; font-size:82px; }
+      .slide-three .flow { position:relative; z-index:3; display:flex; align-items:center; gap:27px; margin-top:67px; }
+      .slide-three .action { width:265px; min-height:180px; padding:27px; border:1px solid rgba(255,255,255,.13); border-radius:22px; background:linear-gradient(145deg,rgba(255,255,255,.065),rgba(255,255,255,.018)); }
+      .slide-three .action small { color:#6d8588; font:700 12px ui-monospace,monospace; }
+      .slide-three .action strong { display:block; margin-top:62px; font-size:25px; letter-spacing:-.04em; }
+      .slide-three .action:nth-child(3) { border-color:rgba(217,255,112,.38); box-shadow:0 0 0 6px rgba(217,255,112,.08); }
+      .mouse { position:relative; width:34px; height:55px; margin-top:20px; border:2px solid #8ba4a7; border-radius:18px; }
+      .mouse i { position:absolute; left:50%; top:8px; width:3px; height:14px; border-radius:4px; background:var(--lime); transform:translateX(-50%); }
+      .slide-three .corner-shot { position:absolute; right:-80px; bottom:-65px; width:495px; height:308px; opacity:.68; transform:rotate(-6deg); border:1px solid rgba(255,255,255,.13); border-radius:18px; overflow:hidden; box-shadow:0 30px 80px rgba(0,0,0,.4); }
+      .slide-three .corner-shot img { width:100%; height:100%; object-fit:cover; }
+
+      .slide-four { background:#0b2421; }
+      .slide-four .orb { right:-130px; bottom:-250px; background:radial-gradient(circle,rgba(126,182,97,.25),transparent 66%); }
+      .slide-four h1 { max-width:660px; }
+      .slide-four .privacy-grid { position:relative; z-index:3; display:grid; grid-template-columns:repeat(2, 1fr); width:580px; gap:13px; margin-top:55px; }
+      .slide-four .check { display:flex; align-items:center; gap:13px; padding:17px; border:1px solid rgba(255,255,255,.12); border-radius:14px; background:rgba(255,255,255,.035); font-size:14px; font-weight:700; }
+      .slide-four .check i { display:grid; place-items:center; width:26px; height:26px; border-radius:50%; background:var(--lime); color:#183017; font-style:normal; }
+      .slide-four .shot { width:575px; height:400px; right:-15px; top:200px; transform:rotate(2.5deg); opacity:.86; }
+      .slide-four .shot img { height:362px; }
+      .slide-four .local-badge { position:absolute; z-index:5; right:380px; bottom:78px; width:170px; height:170px; display:grid; place-items:center; border-radius:50%; background:var(--lime); color:#173018; text-align:center; font-size:18px; font-weight:900; line-height:1.15; transform:rotate(-7deg); box-shadow:0 22px 55px rgba(0,0,0,.3); }
+
+      .slide-five { background:#dfe8e9; color:#10292f; }
+      .slide-five .brand { color:#10292f; }
+      .slide-five .kicker { color:#197991; }
+      .slide-five h1 { max-width:700px; }
+      .slide-five h1 em { color:#176d81; }
+      .slide-five .sub { color:#586d6e; }
+      .slide-five .shot { width:620px; height:408px; top:275px; }
+      .slide-five .shot img { height:370px; }
+      .slide-five .dark-shot { left:72px; transform:rotate(-3.2deg); }
+      .slide-five .light-shot { right:72px; transform:rotate(3.2deg); z-index:3; }
+      .slide-five .mode-label { position:absolute; z-index:5; bottom:65px; padding:11px 17px; border-radius:999px; font-size:13px; font-weight:850; box-shadow:0 12px 30px rgba(11,39,45,.2); }
+      .slide-five .night-label { left:112px; background:#10292f; color:var(--paper); }
+      .slide-five .light-label { right:112px; background:var(--paper); color:#10292f; }
+    </style>
+  </head>
+  <body>
+    <section class="slide slide-one" data-slide="1">
+      <div class="grain"></div><div class="orb"></div>
+      <div class="brand"><span class="mark"><i></i><i></i><i></i></span>TabScroll</div>
+      <p class="kicker">Visual tab switcher for Chrome</p>
+      <h1>Alt-Tab for your <em>Chrome tabs.</em></h1>
+      <p class="sub">Turn a crowded window into a full-screen visual switcher.</p>
+      <div class="shortcut-row"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>K</kbd><span class="arrow">→</span></div>
+      <div class="shot"><div class="browser-top"><i></i><i></i><i></i><span></span></div><img src="source/tabscroll-dark.png" alt=""></div>
+    </section>
+
+    <section class="slide slide-two" data-slide="2">
+      <div class="grain"></div>
+      <div class="brand"><span class="mark"><i></i><i></i><i></i></span>TabScroll</div>
+      <p class="kicker">Stop guessing</p>
+      <h1>See the tab <em>before</em> you switch.</h1>
+      <p class="sub">Titles, URLs, favicons, and visual previews make crowded tabs recognizable again.</p>
+      <div class="shot"><div class="browser-top"><i></i><i></i><i></i><span></span></div><img src="source/tabscroll-light.png" alt=""></div>
+      <div class="focus-ring"></div>
+      <div class="callout"><strong>SELECTED TAB</strong><span>The centered card makes your next destination unmistakable.</span></div>
+    </section>
+
+    <section class="slide slide-three" data-slide="3">
+      <div class="grain"></div><div class="orb"></div>
+      <div class="brand"><span class="mark"><i></i><i></i><i></i></span>TabScroll</div>
+      <p class="kicker">Fast by muscle memory</p>
+      <h1>Open. Scroll. <em>Done.</em></h1>
+      <div class="flow">
+        <div class="action"><small>01</small><div class="shortcut-row"><kbd>Ctrl</kbd><kbd>⇧</kbd><kbd>K</kbd></div><strong>Open</strong></div>
+        <span class="arrow">→</span>
+        <div class="action"><small>02</small><div class="mouse"><i></i></div><strong>Scroll</strong></div>
+        <span class="arrow">→</span>
+        <div class="action"><small>03</small><div class="enter-key"><kbd>Enter ↵</kbd></div><strong>Switch</strong></div>
+      </div>
+      <div class="corner-shot"><img src="source/tabscroll-dark.png" alt=""></div>
+    </section>
+
+    <section class="slide slide-four" data-slide="4">
+      <div class="grain"></div><div class="orb"></div>
+      <div class="brand"><span class="mark"><i></i><i></i><i></i></span>TabScroll</div>
+      <p class="kicker">Privacy without fine print</p>
+      <h1>Your tabs stay <em>in your browser.</em></h1>
+      <div class="privacy-grid">
+        <div class="check"><i>✓</i>No account</div>
+        <div class="check"><i>✓</i>No analytics</div>
+        <div class="check"><i>✓</i>No advertising</div>
+        <div class="check"><i>✓</i>No remote uploads</div>
+      </div>
+      <div class="shot"><div class="browser-top"><i></i><i></i><i></i><span></span></div><img src="source/tabscroll-dark.png" alt=""></div>
+      <div class="local-badge">LOCAL<br>BY<br>DESIGN</div>
+    </section>
+
+    <section class="slide slide-five" data-slide="5">
+      <div class="grain"></div>
+      <div class="brand"><span class="mark"><i></i><i></i><i></i></span>TabScroll</div>
+      <p class="kicker">Made for your workspace</p>
+      <h1>Light or night. <em>Your call.</em></h1>
+      <div class="shot dark-shot"><div class="browser-top"><i></i><i></i><i></i><span></span></div><img src="source/tabscroll-dark.png" alt=""></div>
+      <div class="shot light-shot"><div class="browser-top"><i></i><i></i><i></i><span></span></div><img src="source/tabscroll-light.png" alt=""></div>
+      <div class="mode-label night-label">Night mode</div><div class="mode-label light-label">Light mode</div>
+    </section>
+
+    <script>
+      const slide = new URLSearchParams(location.search).get("slide") || "1";
+      document.querySelector(`[data-slide="${slide}"]`)?.classList.add("active");
+    </script>
+  </body>
+</html>

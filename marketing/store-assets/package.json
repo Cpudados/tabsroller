@@ -1,0 +1,11 @@
+{
+  "name": "tabscroll-store-assets",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "render": "node render.cjs"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.5"
+  }
+}

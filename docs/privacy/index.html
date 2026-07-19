@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="TabScroll privacy policy.">
+    <meta name="theme-color" content="#06171c">
+    <title>Privacy — TabScroll</title>
+    <link rel="icon" href="../assets/tabscroll-icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="../styles.css">
+    <style>
+      .policy { width: min(calc(100% - 40px), 820px); margin: 0 auto; padding: 90px 0 130px; }
+      .policy h1 { font-size: clamp(48px, 8vw, 78px); }
+      .policy h2 { margin-top: 56px; font-size: 28px; letter-spacing: -.035em; }
+      .policy p, .policy li { color: #aebdba; line-height: 1.75; }
+      .policy li + li { margin-top: 8px; }
+      .policy .updated { margin: 24px 0 50px; color: #6bd5eb; font: 700 12px ui-monospace, monospace; text-transform: uppercase; letter-spacing: .1em; }
+      .policy .callout { padding: 22px; border: 1px solid rgba(255,255,255,.13); border-radius: 16px; background: rgba(255,255,255,.035); }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="../"><img src="../assets/tabscroll-icon.svg" alt=""><span>TabScroll</span></a>
+      <a class="button button-small" href="https://chromewebstore.google.com/detail/tabscroll/monkhocbkbpjikgjkiaglgdannfmmmfd">Add to Chrome</a>
+    </header>
+    <main class="policy">
+      <p class="eyebrow">Privacy policy</p>
+      <h1>Local by design.</h1>
+      <p class="updated">Last updated July 19, 2026</p>
+      <p class="callout">TabScroll does not send browsing data, URLs, screenshots, or preferences to any external service. It has no analytics, advertising, tracking pixels, or third-party telemetry.</p>
+
+      <h2>Data TabScroll processes</h2>
+      <ul>
+        <li>Current-window tab metadata needed to render the switcher, including title, URL or pending URL, favicon, position, and active state.</li>
+        <li>A screenshot preview of the currently active tab when you explicitly open TabScroll.</li>
+        <li>Temporary screenshot previews of other eligible tabs in the same window while the overlay is open.</li>
+        <li>A local light or night theme preference stored on your device.</li>
+      </ul>
+
+      <h2>How the data is used</h2>
+      <ul>
+        <li>To show the current window's tabs inside the TabScroll interface.</li>
+        <li>To let you navigate and activate the tab you choose.</li>
+        <li>To show previews that help you recognize tabs.</li>
+        <li>To remember your theme choice.</li>
+      </ul>
+
+      <h2>Storage and retention</h2>
+      <p>Tab metadata and screenshot previews are processed locally for the current overlay session. Previews are held only in memory as long as needed to render that session and are not intentionally saved as browsing history. The theme preference remains locally on your device until you change it or clear extension or site data.</p>
+
+      <h2>Permissions</h2>
+      <ul>
+        <li><strong>tabs:</strong> reads the current window's tabs and activates the one you select.</li>
+        <li><strong>activeTab:</strong> provides temporary access after you explicitly invoke TabScroll.</li>
+        <li><strong>scripting:</strong> injects the TabScroll overlay into the current page.</li>
+        <li><strong>debugger:</strong> captures previews of eligible background tabs without visibly activating them. TabScroll attaches only for the capture and detaches immediately afterward.</li>
+      </ul>
+
+      <h2>What TabScroll does not do</h2>
+      <ul>
+        <li>It does not sell, transfer, or share browsing data or screenshots.</li>
+        <li>It does not use data for advertising, profiling, analytics, or unrelated purposes.</li>
+        <li>It does not store a remote copy of your browsing activity.</li>
+      </ul>
+
+      <h2>Changes</h2>
+      <p>If TabScroll's permissions, functionality, or data handling changes, this policy will be updated before the related release is published.</p>
+
+      <h2>Contact</h2>
+      <p>Questions or concerns can be submitted through the <a class="text-link" href="https://github.com/Cpudados/tabsroller/issues">public support page →</a>.</p>
+    </main>
+  </body>
+</html>

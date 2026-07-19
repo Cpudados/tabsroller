@@ -1,34 +1,52 @@
-# TabScroll Extension
+# TabScroll — Visual Alt-Tab for Chrome
 
-Load the `extension/` directory as an unpacked Chromium extension.
-<img width="1905" height="1027" alt="image" src="https://github.com/user-attachments/assets/0bfce839-26f6-4c5a-a317-ef0ba9a97684" />
+TabScroll turns a crowded Chrome window into a full-screen visual tab switcher. Open it with `Ctrl+Shift+K` (`Command+Shift+K` on macOS), move with the mouse wheel or arrow keys, and press `Enter` to switch.
 
-What it does:
+![TabScroll in night mode](docs/assets/tabscroll-dark.png)
 
-- Opens a full-screen TabScroll overlay from the toolbar button or the `Ctrl+Shift+K` / `Command+Shift+K` shortcut.
-- Pulls the real tabs from the current browser window.
-- Uses scroll or arrow keys to move through the session one tab at a time.
-- Activates the selected tab with `Enter` or by clicking the centered card.
-- Closes with `Esc`.
+## Why TabScroll
 
-Notes:
+- Recognize tabs from their title, URL, favicon, and visual preview.
+- Navigate without hunting through tiny tab-strip icons.
+- Use the mouse wheel, arrow keys, click, or keyboard shortcut.
+- Choose a light or night interface.
+- Keep browsing data local: no account, analytics, advertising, or telemetry.
 
-- TabScroll captures the active tab preview as soon as you open the overlay.
-- When you open the overlay, TabScroll also tries to capture previews for the other tabs in the current window from the background and streams them into the existing cards.
-- Chrome shows its own native debugging banner while those background previews are captured because TabScroll uses the `chrome.debugger` API for that step.
-- Chrome internal pages such as `chrome://` and some store pages do not allow content-script overlays, so TabScroll will not open there.
-- Protected pages and non-web URLs can still fall back to the visual placeholder.
+## Install
 
-Permissions:
+- [Install from the Chrome Web Store](https://chromewebstore.google.com/detail/tabscroll/monkhocbkbpjikgjkiaglgdannfmmmfd)
+- For local development, open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the `extension/` directory.
 
-- `tabs`: reads the tabs in the current browser window so TabScroll can show each tab's title, URL, favicon, order, and active state inside the switcher. This is the core feature of the extension.
-- `activeTab`: is used only when you explicitly open TabScroll. It gives temporary access to the page you invoked the extension on so TabScroll can inject the overlay and capture a preview of the tab you are currently viewing.
-- `scripting`: injects the overlay host script into the current tab after you explicitly invoke the extension.
-- `debugger`: is used only to capture preview screenshots of the other tabs in the same current window without visibly switching to them. Those previews are used only to render the visual tab switcher locally in the browser.
+Create a Chrome Web Store upload ZIP with:
 
-Privacy:
+```bash
+bash extension/scripts/package-extension.sh
+```
 
-- TabScroll does not send browsing data, screenshots, or analytics to any remote service.
-- Tab data is used locally in the browser to render the tab switcher UI.
-- Preview capture for background tabs happens locally and is only used to help you recognize and switch to the correct tab.
-- See `PRIVACY.md` for the publishable policy text.
+## How it works
+
+1. Open TabScroll from the toolbar or press `Ctrl+Shift+K`.
+2. Scroll or use the arrow keys to move through the current window's tabs.
+3. Press `Enter` or click the centered card to activate it.
+4. Press `Esc` to close TabScroll.
+
+## Permissions and privacy
+
+TabScroll uses `tabs`, `activeTab`, and `scripting` to build the switcher inside the page where you invoke it. It uses Chrome's `debugger` API only while TabScroll is open to capture background-tab previews without visibly activating each tab. Chrome displays its native debugging banner during that capture.
+
+All tab metadata and screenshots stay in the browser and are kept only for the current overlay session. See the [privacy policy](extension/PRIVACY.md) and [technical permission details](extension/README.md).
+
+## Marketing and release material
+
+- [Chrome Web Store copy](marketing/STORE_LISTING.md)
+- [Launch posts and short-video scripts](marketing/POSTS.md)
+- [14-day launch plan](marketing/LAUNCH_PLAN.md)
+- [Store screenshot source and exports](marketing/store-assets/)
+
+## Project structure
+
+```text
+extension/   Chrome extension source
+docs/        GitHub Pages landing page
+marketing/   Store listing, launch copy, and promotional assets
+```
