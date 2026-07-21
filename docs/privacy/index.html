@@ -31,33 +31,33 @@
 
       <h2>Data TabScroll processes</h2>
       <ul>
-        <li>Current-window tab metadata needed to render the switcher, including title, URL or pending URL, favicon, position, and active state.</li>
+        <li>Basic current-window tab state needed for switching, including identifiers, positions, and active state.</li>
+        <li>If you enable the optional tab-details permission: titles, open-tab addresses, and favicons for the current window.</li>
         <li>A screenshot preview of the currently active tab when you explicitly open TabScroll.</li>
-        <li>Temporary screenshot previews of other eligible tabs in the same window while the overlay is open.</li>
-        <li>A local light or night theme preference stored on your device.</li>
+        <li>A local light or night theme preference and onboarding-complete flag stored on your device.</li>
       </ul>
 
       <h2>How the data is used</h2>
       <ul>
         <li>To show the current window's tabs inside the TabScroll interface.</li>
         <li>To let you navigate and activate the tab you choose.</li>
-        <li>To show previews that help you recognize tabs.</li>
+        <li>To show the current-page preview and open-tab identity cards.</li>
         <li>To remember your theme choice.</li>
       </ul>
 
       <h2>Storage and retention</h2>
-      <p>Tab metadata and screenshot previews are processed locally for the current overlay session. Previews are held only in memory as long as needed to render that session and are not intentionally saved as browsing history. The theme preference remains locally on your device until you change it or clear extension or site data.</p>
+      <p>Open-tab details and the current-tab screenshot are processed locally for the active overlay session. The screenshot is held only in memory as long as needed to render that session. Theme and onboarding preferences remain locally on your device until you change them or clear extension data. TabScroll does not create a browsing-history database.</p>
 
       <h2>Permissions</h2>
       <ul>
-        <li><strong>tabs:</strong> reads the current window's tabs and activates the one you select.</li>
-        <li><strong>activeTab:</strong> provides temporary access after you explicitly invoke TabScroll.</li>
+        <li><strong>activeTab:</strong> provides temporary access after you explicitly invoke TabScroll, allowing the current-page preview and overlay injection.</li>
         <li><strong>scripting:</strong> injects the TabScroll overlay into the current page.</li>
-        <li><strong>debugger:</strong> captures previews of eligible background tabs without visibly activating them. TabScroll attaches only for the capture and detaches immediately afterward.</li>
+        <li><strong>tabs (optional):</strong> reads the titles, addresses, favicons, order, and active state of tabs currently open in the window. The switcher remains usable if you decline.</li>
       </ul>
 
       <h2>What TabScroll does not do</h2>
       <ul>
+        <li>It does not capture background-tab screenshots or request Chrome debugger access.</li>
         <li>It does not sell, transfer, or share browsing data or screenshots.</li>
         <li>It does not use data for advertising, profiling, analytics, or unrelated purposes.</li>
         <li>It does not store a remote copy of your browsing activity.</li>

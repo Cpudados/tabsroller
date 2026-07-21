@@ -22,7 +22,7 @@ Supporting promise: recognize crowded tabs visually and switch with one shortcut
 
 ### Days 1–2 — Conversion foundation
 
-- Publish version 0.1.4 with the optimized name and short description.
+- Publish version 0.2.0 with the trust-first permission model, onboarding, and updated switching flow.
 - Upload the five screenshots from `marketing/store-assets/output/`.
 - Add the landing page, support URL, and branded privacy-policy URL.
 - Verify that the permission explanation matches actual behavior.
@@ -31,7 +31,7 @@ Supporting promise: recognize crowded tabs visually and switch with one shortcut
 
 - Invite 20 people who genuinely use many tabs.
 - Ask each person to use TabScroll for three work sessions.
-- Ask four questions: Was the shortcut memorable? Was switching faster? Did the Chrome permission warning worry you? What would make you uninstall?
+- Ask four questions: Was the shortcut memorable? Was switching faster? Was the optional tab-details prompt clear? What would make you uninstall?
 - Fix the two most repeated problems.
 - Ask satisfied users for an honest review; never pay or reward reviews.
 

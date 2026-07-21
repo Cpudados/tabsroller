@@ -4,6 +4,7 @@ const sharp = require("sharp");
 
 const dark = fs.readFileSync(path.join(__dirname, "source", "tabscroll-dark.png")).toString("base64");
 const light = fs.readFileSync(path.join(__dirname, "source", "tabscroll-light.png")).toString("base64");
+const onboarding = fs.readFileSync(path.join(__dirname, "source", "tabscroll-onboarding.png")).toString("base64");
 
 const outputs = [
   ["01-alt-tab-for-tabs.png", slideOne()],
@@ -75,8 +76,8 @@ function slideTwo() {
   return shell(`
     ${brand("#10292f")}
     <text x="76" y="180" fill="#197991" font-family="Arial" font-size="15" font-weight="800" letter-spacing="2.2">STOP GUESSING</text>
-    <text x="76" y="255" fill="#10292f" font-family="Arial" font-size="65" font-weight="800" letter-spacing="-4"><tspan x="76">See the tab</tspan><tspan x="76" dy="67" fill="#176d81">before you switch.</tspan></text>
-    <text x="76" y="378" fill="#586d6e" font-family="Arial" font-size="19"><tspan x="76">Titles, URLs, favicons, and previews</tspan><tspan x="76" dy="29">make crowded tabs recognizable again.</tspan></text>
+    <text x="76" y="255" fill="#10292f" font-family="Arial" font-size="65" font-weight="800" letter-spacing="-4"><tspan x="76">Recognize it</tspan><tspan x="76" dy="67" fill="#176d81">before you switch.</tspan></text>
+    <text x="76" y="378" fill="#586d6e" font-family="Arial" font-size="19"><tspan x="76">Titles, sites, favicons, and a current-page</tspan><tspan x="76" dy="29">preview make tabs recognizable.</tspan></text>
     ${shot("two", light, 500, 340, 720, 410)}
     <rect x="76" y="552" width="330" height="118" rx="16" fill="#10292f" filter="url(#softShadow)"/>
     <text x="99" y="585" fill="#d9ff70" font-family="monospace" font-size="13" font-weight="700">SELECTED TAB</text>
@@ -115,11 +116,11 @@ function slideFour() {
   return shell(`
     <circle cx="1140" cy="700" r="460" fill="url(#glow)" opacity=".75"/>
     ${brand()}
-    <text x="76" y="185" fill="#75dbef" font-family="Arial" font-size="15" font-weight="800" letter-spacing="2.2">PRIVACY WITHOUT FINE PRINT</text>
-    <text x="76" y="270" fill="#f3f1e8" font-family="Arial" font-size="66" font-weight="800" letter-spacing="-4"><tspan x="76">Your tabs stay</tspan><tspan x="76" dy="67" fill="#d9ff70">in your browser.</tspan></text>
-    ${check(76, 420, "No account")}${check(340, 420, "No analytics")}${check(76, 490, "No advertising")}${check(340, 490, "No remote uploads")}
-    ${shot("four", dark, 650, 225, 590, 369)}
-    <circle cx="915" cy="645" r="83" fill="#d9ff70" filter="url(#softShadow)"/><text x="915" y="626" fill="#173018" font-family="Arial" font-size="18" font-weight="900" text-anchor="middle"><tspan x="915">LOCAL</tspan><tspan x="915" dy="21">BY</tspan><tspan x="915" dy="21">DESIGN</tspan></text>
+    <text x="76" y="185" fill="#75dbef" font-family="Arial" font-size="15" font-weight="800" letter-spacing="2.2">PERMISSION BEFORE ACCESS</text>
+    <text x="76" y="270" fill="#f3f1e8" font-family="Arial" font-size="62" font-weight="800" letter-spacing="-4"><tspan x="76">You choose what</tspan><tspan x="76" dy="64" fill="#d9ff70">TabScroll can see.</tspan></text>
+    ${check(76, 420, "No debugger access")}${check(340, 420, "No background captures")}${check(76, 490, "Optional tab details")}${check(340, 490, "No remote uploads")}
+    ${shot("four", onboarding, 650, 225, 590, 369)}
+    <circle cx="915" cy="645" r="83" fill="#d9ff70" filter="url(#softShadow)"/><text x="915" y="637" fill="#173018" font-family="Arial" font-size="18" font-weight="900" text-anchor="middle"><tspan x="915">CLEAR</tspan><tspan x="915" dy="22">CHOICE</tspan></text>
   `, "#0b2421");
 }
 
@@ -156,7 +157,7 @@ function marqueePromo() {
       <g transform="translate(70 58)"><rect x="0" y="13" width="15" height="18" rx="3" fill="none" stroke="#75dbef" stroke-width="2" opacity=".45"/><rect x="7" y="7" width="15" height="18" rx="3" fill="none" stroke="#75dbef" stroke-width="2" opacity=".72"/><rect x="14" y="1" width="15" height="18" rx="3" fill="none" stroke="#75dbef" stroke-width="2"/><text x="43" y="23" fill="#f3f1e8" font-family="Arial" font-size="20" font-weight="800">TabScroll</text></g>
       <text x="70" y="205" fill="#75dbef" font-family="Arial" font-size="14" font-weight="800" letter-spacing="2.2">VISUAL TAB SWITCHER FOR CHROME</text>
       <text x="70" y="282" fill="#f3f1e8" font-family="Arial" font-size="69" font-weight="800" letter-spacing="-4"><tspan x="70">Alt-Tab for your</tspan><tspan x="70" dy="67" fill="#d9ff70">Chrome tabs.</tspan></text>
-      <text x="70" y="410" fill="#a8bbb8" font-family="Arial" font-size="19">See it. Scroll to it. Switch with confidence.</text>
+      <text x="70" y="410" fill="#a8bbb8" font-family="Arial" font-size="19">Find it. Scroll to it. Switch with confidence.</text>
       <rect x="745" y="80" width="720" height="450" rx="24" fill="#0b242b" stroke="#75dbef" stroke-opacity=".25" filter="url(#marqueeShadow)"/><image href="data:image/png;base64,${dark}" x="745" y="80" width="720" height="450" preserveAspectRatio="xMidYMid slice" clip-path="url(#marqueeClip)"/>
     </svg>`;
 }

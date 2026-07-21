@@ -6,7 +6,7 @@ TabScroll turns a crowded Chrome window into a full-screen visual tab switcher. 
 
 ## Why TabScroll
 
-- Recognize tabs from their title, URL, favicon, and visual preview.
+- Recognize tabs from titles, site addresses, favicons, and a preview of the current page.
 - Navigate without hunting through tiny tab-strip icons.
 - Use the mouse wheel, arrow keys, click, or keyboard shortcut.
 - Choose a light or night interface.
@@ -27,14 +27,14 @@ bash extension/scripts/package-extension.sh
 
 1. Open TabScroll from the toolbar or press `Ctrl+Shift+K`.
 2. Scroll or use the arrow keys to move through the current window's tabs.
-3. Press `Enter` or click the centered card to activate it.
+3. Press `Enter` to activate the centered card, or click any visible card to switch directly.
 4. Press `Esc` to close TabScroll.
 
 ## Permissions and privacy
 
-TabScroll uses `tabs`, `activeTab`, and `scripting` to build the switcher inside the page where you invoke it. It uses Chrome's `debugger` API only while TabScroll is open to capture background-tab previews without visibly activating each tab. Chrome displays its native debugging banner during that capture.
+TabScroll requires `activeTab` and `scripting` only after you explicitly open it. On first use, it explains an optional `tabs` permission that adds titles, site addresses, and favicons for all open tabs. You can decline and keep using a limited view.
 
-All tab metadata and screenshots stay in the browser and are kept only for the current overlay session. See the [privacy policy](extension/PRIVACY.md) and [technical permission details](extension/README.md).
+TabScroll does not request debugger access or capture background-tab screenshots. Open-tab details and the current-tab preview stay in the browser. See the [privacy policy](extension/PRIVACY.md) and [technical permission details](extension/README.md).
 
 ## Marketing and release material
 

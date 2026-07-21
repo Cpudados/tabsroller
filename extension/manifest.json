@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "TabScroll – Visual Tab Switcher",
-  "version": "0.1.4",
-  "description": "Alt-Tab for Chrome tabs: preview crowded windows and switch with your mouse wheel, arrow keys, or one shortcut.",
+  "version": "0.2.0",
+  "description": "A fast, private visual tab switcher with scroll, arrow-key, and one-click controls.",
   "permissions": [
-    "tabs",
     "activeTab",
-    "scripting",
-    "debugger"
+    "scripting"
+  ],
+  "optional_permissions": [
+    "tabs"
   ],
   "background": {
     "service_worker": "background.js"
