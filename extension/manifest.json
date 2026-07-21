@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "TabScroll",
-  "version": "0.1.3",
-  "description": "A full-screen tab switcher that makes crowded browser sessions easier to navigate.",
+  "name": "TabScroll – Visual Tab Switcher",
+  "version": "0.2.0",
+  "description": "A fast, private visual tab switcher with scroll, arrow-key, and one-click controls.",
   "permissions": [
-    "tabs",
     "activeTab",
-    "scripting",
-    "debugger"
+    "scripting"
+  ],
+  "optional_permissions": [
+    "tabs"
   ],
   "background": {
     "service_worker": "background.js"

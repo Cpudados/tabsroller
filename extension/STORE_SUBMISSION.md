@@ -1,49 +1,48 @@
-# TabScroll Chrome Web Store Notes
+# TabScroll Chrome Web Store submission
 
-Last updated: 2026-04-19
+Last updated: 2026-07-19
 
-Use this file as the source of truth when filling out the Chrome Web Store listing and privacy fields.
+Use `marketing/STORE_LISTING.md` as the copy-and-paste source for the public listing. This file contains the technical declarations used in the Chrome Web Store dashboard.
 
-Single purpose:
+## Single purpose
 
-- TabScroll is a full-screen tab switcher for the current browser window.
+TabScroll is a full-screen visual switcher for tabs in the user's current Chrome window.
 
-Suggested short description:
+## Permission justifications
 
-- A full-screen tab switcher for browsing crowded Chrome windows with keyboard, scroll, and click controls.
+Required permissions:
 
-Suggested detailed description:
+- `activeTab`: gives temporary access only after the user invokes TabScroll, allowing capture of the currently visible tab and injection of the switcher on that page.
+- `scripting`: injects the TabScroll overlay host script into the page where the user explicitly opened it.
 
-- TabScroll opens a full-screen overlay over the current page and shows the tabs from your current browser window in a focused, visual switcher. Use the mouse wheel or arrow keys to move between tabs, then press Enter or click the centered card to activate it.
-- The extension reads the tabs in the current browser window so it can show each tab's title, URL, favicon, order, and active state inside the switcher. This is the core functionality of the product.
-- When you explicitly open TabScroll, it captures a preview of the active tab and then tries to capture preview screenshots of the other tabs in the same window so you can recognize and switch to the right tab more quickly.
-- TabScroll processes this data locally in the browser only to render the tab switcher and activate the tab you choose. It does not send browsing data or screenshots to any remote service.
+Optional permission:
 
-Permissions justification:
+- `tabs`: after a separate in-product explanation and user choice, reads titles, addresses, favicons, order, and active state for tabs currently open in the window. It is used only to make the switcher cards recognizable and activate the selected tab. The core switcher remains usable if the user declines.
 
-- `tabs`: required to read the tabs in the current browser window so TabScroll can show the tab list, including title, URL, favicon, order, and active state, and activate the selected tab.
-- `activeTab`: required only after explicit user invocation so TabScroll can access the current page, inject the overlay, and capture a preview of the active tab.
-- `scripting`: required to inject the overlay host script into the tab where the user explicitly opened TabScroll.
-- `debugger`: required only to capture preview screenshots of the other tabs in the same current window without visibly switching tabs. Those previews are used only to render the visual tab switcher locally in the browser.
+TabScroll does not request `debugger`, host permissions, or access to Chrome's stored history.
 
-Ready-to-paste store explanation:
+## Data-use statement
 
-- TabScroll reads the current window's tabs to show a visual tab switcher, including each tab's title, URL, favicon, order, and active state. This is the core function of the extension.
-- When the user explicitly opens TabScroll, the extension captures preview images so the user can recognize and switch to the right tab quickly. The active tab is captured from the explicit invocation, and the other tabs in the same window are captured in the background so the switcher can stay visual without visibly changing tabs.
-- TabScroll uses this data only locally in the browser to render the switcher and activate the selected tab. It does not send browsing data, tab contents, or screenshots to any remote service, and it does not use this data for analytics, advertising, or tracking.
+TabScroll processes current-window tab state, optional open-tab details, and one temporary screenshot of the currently visible tab only to render its switcher and activate the user's selection. It does not send browsing data, tab contents, screenshots, or preferences to a remote service. It has no analytics, advertising, tracking, profiling, sale, or sharing of user data.
 
-Privacy disclosures:
+## Dashboard checklist
 
-- Handles browsing activity only as required to show the current window's tabs inside the extension UI.
-- Captures the active tab's screenshot preview on explicit user invocation.
-- Also captures other open tabs in the current window in the background when the user explicitly opens the overlay.
-- No remote transmission, analytics, sale, or sharing of browsing data.
-- Privacy policy file: `PRIVACY.md`
+- Detailed description matches `marketing/STORE_LISTING.md`.
+- Category: **Productivity > Tools**.
+- Privacy policy: `https://cpudados.github.io/tabsroller/privacy/` after GitHub Pages is enabled from `/docs` on `main`.
+- Support page: `https://github.com/Cpudados/tabsroller/issues`.
+- Homepage: `https://cpudados.github.io/tabsroller/` after GitHub Pages is enabled.
+- Upload all five current 1280×800 screenshots from `marketing/store-assets/output/` in the documented order.
+- Upload the 440×280 small promotional tile and 1400×560 marquee tile from the same folder if promotional placement is planned.
+- Declare open-tab details and the active-tab screenshot accurately in the privacy questionnaire.
+- Confirm that the optional `tabs` permission is explained before it is requested.
+- Test both permission paths: **Allow tab details** and **Continue with limited view**.
+- Test toolbar, shortcut, wheel, arrows, Enter, direct card click, wraparound, and Escape on regular `http` and `https` pages.
+- Confirm version `0.2.0` is higher than the currently published version.
 
-Submission checklist:
+## Trust check before traffic
 
-- Replace the Chrome Web Store privacy policy URL with a public URL that serves the contents of `PRIVACY.md`.
-- Ensure the store listing description matches the current behavior exactly.
-- Answer the dashboard privacy questions consistently with the privacy policy.
-- Add a support email or website in the developer dashboard.
-- Test on regular `http` and `https` pages before upload.
+- Install should not request debugger access or all-site host access.
+- The first listing screenshot must show the real current interface at a readable scale.
+- Public copy must distinguish the current-tab preview from background-tab identity cards.
+- Permission language must explain Chrome's browsing-history label without claiming access to stored history.

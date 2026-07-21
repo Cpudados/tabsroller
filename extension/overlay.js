@@ -1,8 +1,9 @@
 (function () {
   const THEME_STORAGE_KEY = "tabscroll:theme";
+  const ONBOARDING_STORAGE_KEY = "tabscroll:onboarding-v1";
   const THEME_NIGHT = "night";
   const THEME_WHITE = "white";
-  const WHEEL_THRESHOLD = 80;
+  const WHEEL_THRESHOLD = 48;
   const WHEEL_LOCK_MS = 160;
   const app = document.getElementById("app");
   const storedTheme = readStoredTheme();
@@ -14,7 +15,10 @@
     activeIndex: 0,
     loading: true,
     hostTabId: null,
-    previewCaptureRequested: false,
+    detailsAccess: false,
+    onboarding: false,
+    permissionPending: false,
+    permissionError: false,
     wheelDelta: 0,
     wheelResetTimer: 0,
     wheelLockedUntil: 0,
@@ -50,7 +54,6 @@
 
   window.addEventListener("wheel", handleWheel, { passive: false });
   window.addEventListener("keydown", handleKeyDown, true);
-  window.addEventListener("message", handleParentMessage);
   document.addEventListener("click", handleClick);
   bindSystemThemeListener();
   applyTheme();
@@ -58,7 +61,7 @@
   void requestSession();
 
   function handleWheel(event) {
-    if (!state.tabs.length) {
+    if (state.onboarding || !state.tabs.length) {
       return;
     }
 
@@ -102,7 +105,7 @@
       return;
     }
 
-    if (!state.tabs.length) {
+    if (state.onboarding || !state.tabs.length) {
       return;
     }
 
@@ -119,6 +122,10 @@
     }
 
     if (event.key === "Enter" || event.key === " ") {
+      if (event.target instanceof Element && event.target.closest("button")) {
+        return;
+      }
+
       event.preventDefault();
       activateSelection();
     }
@@ -149,6 +156,16 @@
         activateSelection();
         return;
       }
+
+      if (action === "grant-details") {
+        void grantDetailsAccess();
+        return;
+      }
+
+      if (action === "complete-onboarding") {
+        completeOnboarding();
+        return;
+      }
     }
 
     const dot = target.closest("[data-role='dot']");
@@ -161,13 +178,7 @@
     const card = target.closest("[data-role='card']");
     if (card) {
       const index = Number(card.getAttribute("data-index"));
-
-      if (index === state.activeIndex) {
-        activateSelection();
-      } else {
-        setSelection(index);
-      }
-
+      void activateIndex(index);
       return;
     }
 
@@ -182,7 +193,7 @@
   }
 
   function setSelection(index) {
-    const nextIndex = clampIndex(index);
+    const nextIndex = normalizeIndex(index);
 
     if (nextIndex === state.activeIndex) {
       return;
@@ -193,7 +204,12 @@
   }
 
   async function activateSelection() {
-    const tab = state.tabs[state.activeIndex];
+    await activateIndex(state.activeIndex);
+  }
+
+  async function activateIndex(index) {
+    const nextIndex = normalizeIndex(index);
+    const tab = state.tabs[nextIndex];
 
     if (!tab || typeof tab.id !== "number") {
       closeOverlay();
@@ -255,42 +271,6 @@
     );
   }
 
-  function handleParentMessage(event) {
-    if (event.source !== window.parent) {
-      return;
-    }
-
-    const message = event.data;
-
-    if (message?.type === "tabscroll:preview-capture-complete") {
-      state.previewCaptureRequested = false;
-      return;
-    }
-
-    if (message?.type !== "tabscroll:preview-updated") {
-      return;
-    }
-
-    const tabId = typeof message.tabId === "number" ? message.tabId : NaN;
-    const preview = sanitizeAssetUrl(message.preview);
-
-    if (!Number.isFinite(tabId) || !preview) {
-      return;
-    }
-
-    const tabIndex = state.tabs.findIndex((tab) => tab.id === tabId);
-
-    if (tabIndex < 0 || state.tabs[tabIndex]?.preview === preview) {
-      return;
-    }
-
-    state.tabs[tabIndex].preview = preview;
-
-    if (!state.loading) {
-      render();
-    }
-  }
-
   function render() {
     if (state.loading) {
       app.innerHTML = [
@@ -303,6 +283,16 @@
         '      <p class="ts-loading-copy">TabScroll is gathering your current window.</p>',
         "    </div>",
         "  </div>",
+        "</div>",
+      ].join("");
+      return;
+    }
+
+    if (state.onboarding) {
+      app.innerHTML = [
+        '<div class="ts-shell" data-role="backdrop">',
+        renderHeader(),
+        renderOnboarding(),
         "</div>",
       ].join("");
       return;
@@ -354,6 +344,11 @@
       "    </div>",
       "  </div>",
       '  <div class="ts-actions">',
+      !state.detailsAccess && !state.onboarding
+        ? `    <button class="ts-details-button" type="button" data-action="grant-details"${
+            state.permissionPending ? " disabled" : ""
+          }>${state.permissionPending ? "Requesting…" : "Show tab details"}</button>`
+        : "",
       renderThemeToggle(),
       '    <button class="ts-key-button" type="button" data-action="close">',
       '      <span class="ts-key">Esc</span>',
@@ -361,6 +356,52 @@
       "    </button>",
       "  </div>",
       "</header>",
+    ].join("");
+  }
+
+  function renderOnboarding() {
+    const shortcutKeys = getShortcutKeys();
+    const shortcut = shortcutKeys.map((key) => `<span class="ts-key">${escapeHtml(key)}</span>`).join("");
+
+    return [
+      '<main class="ts-onboarding">',
+      '  <section class="ts-onboarding-card" aria-labelledby="ts-onboarding-title">',
+      '    <div class="ts-onboarding-copy">',
+      '      <p class="ts-onboarding-eyebrow">Welcome to TabScroll</p>',
+      '      <h2 id="ts-onboarding-title">Find the right tab without losing your place.</h2>',
+      '      <p>Open the switcher, move through your current window, and choose a tab. Nothing runs until you ask for it.</p>',
+      '      <div class="ts-onboarding-steps" aria-label="How TabScroll works">',
+      `        <div><span>1</span><strong>Open</strong><p>${shortcut}</p></div>`,
+      '        <div><span>2</span><strong>Move</strong><p>Scroll or use <span class="ts-key">←</span> <span class="ts-key">→</span></p></div>',
+      '        <div><span>3</span><strong>Switch</strong><p>Press <span class="ts-key">Enter</span> or click a card</p></div>',
+      "      </div>",
+      "    </div>",
+      '    <aside class="ts-permission-card">',
+      state.detailsAccess
+        ? [
+            '      <span class="ts-permission-icon" aria-hidden="true">✓</span>',
+            '      <p class="ts-permission-kicker">Ready to switch</p>',
+            '      <h3>Tab details are enabled.</h3>',
+            '      <p>Titles, site addresses, and favicons will make each card easier to recognize.</p>',
+            '      <button class="ts-primary-button" type="button" data-action="complete-onboarding">Start switching</button>',
+          ].join("")
+        : [
+            '      <span class="ts-permission-icon" aria-hidden="true">✦</span>',
+            '      <p class="ts-permission-kicker">Optional permission</p>',
+            '      <h3>Make every tab recognizable.</h3>',
+            '      <p>Allow access to tab titles, site addresses, and favicons. Chrome describes this as browsing-history access; TabScroll reads only your open tabs and never saves or sends them.</p>',
+            state.permissionError
+              ? '      <p class="ts-permission-error" role="status">Permission was not enabled. You can keep using the limited view.</p>'
+              : "",
+            `      <button class="ts-primary-button" type="button" data-action="grant-details"${
+              state.permissionPending ? " disabled" : ""
+            }>${state.permissionPending ? "Waiting for Chrome…" : "Allow tab details"}</button>`,
+            '      <button class="ts-secondary-button" type="button" data-action="complete-onboarding">Continue with limited view</button>',
+          ].join(""),
+      '      <p class="ts-trust-note"><span aria-hidden="true">●</span> No debugger access · No background screenshots · No data leaves Chrome</p>',
+      "    </aside>",
+      "  </section>",
+      "</main>",
     ].join("");
   }
 
@@ -381,13 +422,15 @@
 
   function renderCard(tab, index, position) {
     const title = escapeHtml(tab.title || "Untitled tab");
-    const url = escapeHtml(formatUrl(tab.url || ""));
+    const url = escapeHtml(
+      tab.detailsAvailable ? formatUrl(tab.url || "") : "Enable tab details to identify this tab"
+    );
     const preview = sanitizeAssetUrl(tab.preview);
     const favicon = sanitizeAssetUrl(tab.favicon);
     const selected = index === state.activeIndex;
 
     return [
-      `<button class="ts-card-wrap" type="button" data-role="card" data-index="${index}" data-position="${position}" aria-label="${title}">`,
+      `<button class="ts-card-wrap" type="button" data-role="card" data-index="${index}" data-position="${position}" aria-label="Switch to ${title}">`,
       '  <div class="ts-card">',
       '    <div class="ts-preview">',
       preview
@@ -396,7 +439,8 @@
             '      <div class="ts-preview-fallback">',
             '        <div class="ts-preview-fallback-inner">',
             `          <div class="ts-favicon-badge">${renderFavicon(favicon)}</div>`,
-            "          <span>No preview available</span>",
+            `          <strong>${title}</strong>`,
+            `          <span>${url}</span>`,
             "        </div>",
             "      </div>",
           ].join(""),
@@ -412,7 +456,7 @@
         ? [
             '          <div class="ts-card-status">',
             '            <span class="ts-card-status-dot"></span>',
-            "            <span>Selected Tab</span>",
+            `            <span>${tab.active ? "Current tab" : "Press Enter to switch"}</span>`,
             "          </div>",
           ].join("")
         : "",
@@ -425,16 +469,35 @@
   }
 
   function renderDots() {
+    const dotIndexes = getDotIndexes();
+    let previousIndex = -1;
+
     return [
       '<div class="ts-dots">',
-      state.tabs
-        .map((_, index) => {
+      dotIndexes
+        .map((index) => {
           const className = index === state.activeIndex ? "ts-dot is-active" : "ts-dot";
-          return `<button class="${className}" type="button" data-role="dot" data-index="${index}" aria-label="Go to tab ${index + 1}"></button>`;
+          const gap = previousIndex >= 0 && index - previousIndex > 1 ? '<span class="ts-dot-gap" aria-hidden="true">…</span>' : "";
+          previousIndex = index;
+          return `${gap}<button class="${className}" type="button" data-role="dot" data-index="${index}" aria-label="Select tab ${index + 1}"></button>`;
         })
         .join(""),
       "</div>",
     ].join("");
+  }
+
+  function getDotIndexes() {
+    if (state.tabs.length <= 11) {
+      return state.tabs.map((_, index) => index);
+    }
+
+    const indexes = new Set([0, state.tabs.length - 1]);
+
+    for (let offset = -2; offset <= 2; offset += 1) {
+      indexes.add(normalizeIndex(state.activeIndex + offset));
+    }
+
+    return Array.from(indexes).sort((left, right) => left - right);
   }
 
   function renderCounter() {
@@ -464,7 +527,7 @@
       '      <span class="ts-key">→</span>',
       '      <span class="ts-key">Enter</span>',
       "    </div>",
-      '    <span class="ts-hint-copy">or scroll to navigate</span>',
+      '    <span class="ts-hint-copy">move · Enter switches · cards open directly</span>',
       "  </div>",
       "</div>",
     ].join("");
@@ -489,7 +552,14 @@
   }
 
   function getPosition(index) {
-    const diff = index - state.activeIndex;
+    let diff = index - state.activeIndex;
+    const count = state.tabs.length;
+
+    if (count > 2 && diff > count / 2) {
+      diff -= count;
+    } else if (count > 2 && diff < -count / 2) {
+      diff += count;
+    }
 
     if (diff === -2) {
       return "left-far";
@@ -522,6 +592,14 @@
     return Math.max(0, Math.min(index, state.tabs.length - 1));
   }
 
+  function normalizeIndex(index) {
+    if (!state.tabs.length) {
+      return 0;
+    }
+
+    return ((index % state.tabs.length) + state.tabs.length) % state.tabs.length;
+  }
+
   function findActiveIndex(tabs) {
     const index = tabs.findIndex((tab) => tab.active);
     return index < 0 ? 0 : index;
@@ -534,7 +612,7 @@
     });
   }
 
-  async function requestSession() {
+  async function requestSession(options = {}) {
     const hashParams = new URLSearchParams(window.location.hash.slice(1));
     const hostTabIdValue = hashParams.get("tab");
     const hostTabId =
@@ -553,61 +631,61 @@
       }
 
       state.tabs = Array.isArray(response.payload?.tabs) ? response.payload.tabs : [];
-      state.previewCaptureRequested = false;
+      state.detailsAccess = response.payload?.detailsAccess === true;
       state.activeIndex = clampIndex(
         typeof response.payload?.activeIndex === "number"
           ? response.payload.activeIndex
           : findActiveIndex(state.tabs)
       );
       state.loading = false;
+      state.onboarding = options.showOnboarding !== false && !readOnboardingComplete();
 
       render();
       focusOverlay();
-
-      if (hasAdditionalPreviewCandidates()) {
-        void startPreviewCapture();
-      }
     } catch (_error) {
       state.tabs = [];
       state.activeIndex = 0;
-      state.previewCaptureRequested = false;
       state.loading = false;
       render();
     }
   }
 
-  async function startPreviewCapture() {
-    if (state.previewCaptureRequested || !hasAdditionalPreviewCandidates()) {
+  async function grantDetailsAccess() {
+    if (state.permissionPending) {
       return;
     }
 
-    state.previewCaptureRequested = true;
+    state.permissionPending = true;
+    state.permissionError = false;
+    render();
 
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: "tabscroll:request-all-previews",
-        tabId: state.hostTabId,
-      });
+      const granted = await chrome.permissions.request({ permissions: ["tabs"] });
 
-      if (!response?.ok) {
-        throw new Error(response?.error || "Failed to capture previews");
+      if (!granted) {
+        state.permissionError = true;
+        return;
       }
+
+      persistOnboardingComplete();
+      state.onboarding = false;
+      state.loading = true;
+      render();
+      await requestSession({ showOnboarding: false });
     } catch (_error) {
-      state.previewCaptureRequested = false;
+      state.permissionError = true;
+    } finally {
+      state.permissionPending = false;
+      render();
     }
   }
 
-  function hasAdditionalPreviewCandidates() {
-    return state.tabs.some((tab) => !tab.active && isPreviewCandidateUrl(tab.url || ""));
-  }
-
-  function isPreviewCandidateUrl(value) {
-    try {
-      const parsed = new URL(value);
-      return parsed.protocol === "http:" || parsed.protocol === "https:";
-    } catch (_error) {
-      return false;
-    }
+  function completeOnboarding() {
+    persistOnboardingComplete();
+    state.onboarding = false;
+    state.permissionError = false;
+    render();
+    focusOverlay();
   }
 
   function formatUrl(value) {
@@ -657,6 +735,22 @@
       return value === THEME_NIGHT || value === THEME_WHITE ? value : "";
     } catch (_error) {
       return "";
+    }
+  }
+
+  function persistOnboardingComplete() {
+    try {
+      window.localStorage.setItem(ONBOARDING_STORAGE_KEY, "complete");
+    } catch (_error) {
+      // Onboarding can safely repeat when local storage is unavailable.
+    }
+  }
+
+  function readOnboardingComplete() {
+    try {
+      return window.localStorage.getItem(ONBOARDING_STORAGE_KEY) === "complete";
+    } catch (_error) {
+      return false;
     }
   }
 

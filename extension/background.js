@@ -1,14 +1,9 @@
 const TOGGLE_MESSAGE = "tabscroll:toggle-overlay";
 const ACTIVATE_MESSAGE = "tabscroll:activate-tab";
 const GET_SESSION_MESSAGE = "tabscroll:get-session";
-const REQUEST_ALL_PREVIEWS_MESSAGE = "tabscroll:request-all-previews";
-const PREVIEW_UPDATED_MESSAGE = "tabscroll:preview-updated";
-const PREVIEW_CAPTURE_COMPLETE_MESSAGE = "tabscroll:preview-capture-complete";
-const DEBUGGER_PROTOCOL_VERSION = "1.3";
 const PREVIEW_FORMAT = "jpeg";
 const PREVIEW_QUALITY = 65;
 const pendingSessions = new Map();
-const activePreviewCaptures = new Map();
 
 chrome.action.onClicked.addListener((tab) => {
   if (!tab?.id) {
@@ -43,13 +38,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === REQUEST_ALL_PREVIEWS_MESSAGE) {
-    void requestAllPreviewsForSession(sender, message.tabId)
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
-
-    return true;
-  }
 });
 
 async function openForActiveTab() {
@@ -105,7 +93,11 @@ async function getSessionForSender(sender, explicitTabId) {
 }
 
 async function buildOverlayPayload(hostTab) {
-  const windowTabs = await chrome.tabs.query({ windowId: hostTab.windowId });
+  const [windowTabs, activePreview, detailsAccess] = await Promise.all([
+    chrome.tabs.query({ windowId: hostTab.windowId }),
+    captureVisiblePreview(hostTab.windowId),
+    chrome.permissions.contains({ permissions: ["tabs"] }),
+  ]);
 
   const sortedTabs = windowTabs
     .filter((tab) => typeof tab.id === "number")
@@ -116,18 +108,25 @@ async function buildOverlayPayload(hostTab) {
     0
   );
 
-  const activePreview = await captureVisiblePreview(hostTab.windowId);
-
   return {
     activeIndex,
-    tabs: sortedTabs.map((tab) => ({
-      id: tab.id,
-      title: tab.title || "Untitled tab",
-      url: tab.url || tab.pendingUrl || "",
-      favicon: tab.favIconUrl || "",
-      preview: tab.id === hostTab.id ? activePreview : "",
-      active: tab.active === true,
-    })),
+    detailsAccess,
+    tabs: sortedTabs.map((tab, index) => {
+      const isHostTab = tab.id === hostTab.id;
+      const title = tab.title || (isHostTab ? hostTab.title : "");
+      const url = tab.url || tab.pendingUrl || (isHostTab ? hostTab.url || hostTab.pendingUrl : "");
+      const favicon = tab.favIconUrl || (isHostTab ? hostTab.favIconUrl : "");
+
+      return {
+        id: tab.id,
+        title: title || (detailsAccess ? "Untitled tab" : `Tab ${index + 1}`),
+        url: url || "",
+        favicon: favicon || "",
+        preview: isHostTab ? activePreview : "",
+        active: tab.active === true,
+        detailsAvailable: detailsAccess || Boolean(isHostTab && (title || url || favicon)),
+      };
+    }),
   };
 }
 
@@ -166,128 +165,4 @@ async function captureVisiblePreview(windowId) {
 
 async function safeSendMessage(tabId, message) {
   return chrome.tabs.sendMessage(tabId, message);
-}
-
-async function requestAllPreviewsForSession(sender, explicitTabId) {
-  const sessionTabId = sender.tab?.id ?? (typeof explicitTabId === "number" ? explicitTabId : undefined);
-
-  if (typeof sessionTabId !== "number") {
-    throw new Error("Missing session tab id");
-  }
-
-  if (activePreviewCaptures.has(sessionTabId)) {
-    return;
-  }
-
-  const task = captureAllPreviewsForSession(sessionTabId)
-    .catch((error) => {
-      console.warn("TabScroll preview capture failed.", error);
-    })
-    .finally(() => {
-      activePreviewCaptures.delete(sessionTabId);
-    });
-
-  activePreviewCaptures.set(sessionTabId, task);
-}
-
-async function captureAllPreviewsForSession(sessionTabId) {
-  try {
-    const hostTab = await chrome.tabs.get(sessionTabId);
-    const windowTabs = await chrome.tabs.query({ windowId: hostTab.windowId });
-    const sortedTabs = windowTabs
-      .filter((tab) => typeof tab.id === "number")
-      .sort((left, right) => left.index - right.index);
-
-    for (const tab of sortedTabs) {
-      if (tab.id === hostTab.id) {
-        continue;
-      }
-
-      if (tab.discarded || tab.status === "loading") {
-        continue;
-      }
-
-      const preview = await captureTabPreviewWithDebugger(tab.id);
-
-      if (preview) {
-        await notifyPreviewUpdated(sessionTabId, tab.id, preview);
-      }
-    }
-  } finally {
-    await notifyPreviewCaptureComplete(sessionTabId);
-  }
-}
-
-async function notifyPreviewUpdated(sessionTabId, tabId, preview) {
-  if (typeof sessionTabId !== "number" || typeof tabId !== "number" || !preview) {
-    return;
-  }
-
-  try {
-    await safeSendMessage(sessionTabId, {
-      type: PREVIEW_UPDATED_MESSAGE,
-      tabId,
-      preview,
-    });
-  } catch (_error) {
-    // The overlay may have closed before the preview finished warming.
-  }
-}
-
-async function notifyPreviewCaptureComplete(sessionTabId) {
-  if (typeof sessionTabId !== "number") {
-    return;
-  }
-
-  try {
-    await safeSendMessage(sessionTabId, {
-      type: PREVIEW_CAPTURE_COMPLETE_MESSAGE,
-    });
-  } catch (_error) {
-    // The overlay may have closed before capture completed.
-  }
-}
-
-async function captureTabPreviewWithDebugger(tabId) {
-  const debuggee = { tabId };
-
-  try {
-    await chrome.debugger.attach(debuggee, DEBUGGER_PROTOCOL_VERSION);
-  } catch (_error) {
-    return "";
-  }
-
-  try {
-    try {
-      await chrome.debugger.sendCommand(debuggee, "Page.enable");
-    } catch (_error) {
-      // Some pages do not need explicit Page.enable before capture.
-    }
-
-    for (const options of [
-      { fromSurface: true, optimizeForSpeed: true },
-      { fromSurface: false, optimizeForSpeed: true },
-    ]) {
-      const result = await chrome.debugger.sendCommand(debuggee, "Page.captureScreenshot", {
-        format: PREVIEW_FORMAT,
-        quality: PREVIEW_QUALITY,
-        ...options,
-      });
-      const data = typeof result?.data === "string" ? result.data : "";
-
-      if (data) {
-        return `data:image/${PREVIEW_FORMAT};base64,${data}`;
-      }
-    }
-
-    return "";
-  } catch (_error) {
-    return "";
-  } finally {
-    try {
-      await chrome.debugger.detach(debuggee);
-    } catch (_error) {
-      // Ignore detach failures caused by closed tabs or canceled sessions.
-    }
-  }
 }

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="TabScroll is Alt-Tab for Chrome tabs: a full-screen visual tab switcher for crowded browser windows.">
+    <meta name="theme-color" content="#06171c">
+    <meta property="og:title" content="TabScroll — Alt-Tab for your Chrome tabs">
+    <meta property="og:description" content="Navigate crowded Chrome tabs with your mouse wheel, arrow keys, or one shortcut.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="assets/tabscroll-dark.png">
+    <title>TabScroll — Visual Tab Switcher for Chrome</title>
+    <link rel="icon" href="assets/tabscroll-icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="TabScroll home">
+        <img src="assets/tabscroll-icon.svg" alt="">
+        <span>TabScroll</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#how">How it works</a>
+        <a href="#privacy">Privacy</a>
+        <a href="https://github.com/Cpudados/tabsroller">GitHub</a>
+      </nav>
+      <a class="button button-small" href="https://chromewebstore.google.com/detail/tabscroll/monkhocbkbpjikgjkiaglgdannfmmmfd">Add to Chrome</a>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow"><span></span> Built for crowded Chrome windows</p>
+          <h1>Alt-Tab for your <em>Chrome tabs.</em></h1>
+          <p class="lede">Know where you're going before you switch. TabScroll turns a crowded browser window into a focused, full-screen visual switcher.</p>
+          <div class="hero-actions">
+            <a class="button" href="https://chromewebstore.google.com/detail/tabscroll/monkhocbkbpjikgjkiaglgdannfmmmfd">Add TabScroll to Chrome <span aria-hidden="true">↗</span></a>
+            <a class="text-link" href="#demo">See it in action <span aria-hidden="true">↓</span></a>
+          </div>
+          <ul class="trust-list" aria-label="Product details">
+            <li>Free</li>
+            <li>No account</li>
+            <li>No telemetry</li>
+          </ul>
+        </div>
+
+        <div class="hero-visual" aria-label="TabScroll product preview">
+          <div class="halo"></div>
+          <div class="browser-frame">
+            <div class="browser-bar">
+              <div class="browser-dots"><span></span><span></span><span></span></div>
+              <div class="browser-tabs"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <span class="shortcut">Ctrl&nbsp;&nbsp;Shift&nbsp;&nbsp;K</span>
+            </div>
+            <img src="assets/tabscroll-dark.png" alt="TabScroll showing recognizable cards for several Chrome tabs">
+          </div>
+          <div class="floating-note floating-note-one"><strong>Scroll</strong><span>Move through tabs</span></div>
+          <div class="floating-note floating-note-two"><strong>Enter</strong><span>Open the selected tab</span></div>
+        </div>
+      </section>
+
+      <section class="problem-strip" aria-label="Problem statement">
+        <p>Thirty tabs open.</p>
+        <div class="tiny-tabs" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        <p class="muted">No more guessing which favicon is which.</p>
+      </section>
+
+      <section class="section" id="how">
+        <div class="section-heading">
+          <p class="eyebrow">Three movements</p>
+          <h2>Open. Scroll. Switch.</h2>
+          <p>TabScroll stays out of the way until you need it, then gives every open tab room to be recognized.</p>
+        </div>
+        <div class="steps">
+          <article>
+            <span class="step-number">01</span>
+            <div class="key-combo"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>K</kbd></div>
+            <h3>Open instantly</h3>
+            <p>Use one shortcut or click the toolbar button from any regular web page.</p>
+          </article>
+          <article>
+            <span class="step-number">02</span>
+            <div class="wheel-icon" aria-hidden="true"><span></span></div>
+            <h3>Move visually</h3>
+            <p>Scroll or use the arrow keys to move through recognizable tab cards. Navigation wraps at either end.</p>
+          </article>
+          <article>
+            <span class="step-number">03</span>
+            <div class="enter-key"><kbd>Enter ↵</kbd></div>
+            <h3>Switch with confidence</h3>
+            <p>Press Enter for the centered card, or click any visible card to switch there immediately.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="demo section" id="demo">
+        <div class="demo-copy">
+          <p class="eyebrow">Made to be recognizable</p>
+          <h2>Your tabs deserve more than 16 pixels.</h2>
+          <p>TabScroll makes the selected page unmistakable while keeping nearby tabs visible for context.</p>
+          <div class="feature-pills"><span>Current-page preview</span><span>Titles & URLs</span><span>One-click switching</span></div>
+        </div>
+        <div class="demo-window">
+          <div class="mode-switch" role="group" aria-label="Preview theme">
+            <button class="active" data-theme-button="dark">Night</button>
+            <button data-theme-button="light">Light</button>
+          </div>
+          <img id="product-shot" src="assets/tabscroll-dark.png" alt="TabScroll in night mode">
+        </div>
+      </section>
+
+      <section class="section privacy" id="privacy">
+        <div class="privacy-card">
+          <div>
+            <p class="eyebrow">Local by design</p>
+            <h2>Your tabs are your business.</h2>
+            <p>TabScroll has no backend, login, ads, analytics, tracking pixels, or third-party telemetry. Open-tab details and the current-page preview stay in your browser.</p>
+            <a class="text-link" href="privacy/">Read the privacy policy <span aria-hidden="true">→</span></a>
+          </div>
+          <ul>
+            <li><span>✓</span><strong>No remote data transmission</strong></li>
+            <li><span>✓</span><strong>No background-tab screenshots</strong></li>
+            <li><span>✓</span><strong>No advertising or profiling</strong></li>
+            <li><span>✓</span><strong>Public source and permission notes</strong></li>
+          </ul>
+        </div>
+        <details>
+          <summary>What does the optional tab-details permission do? <span>+</span></summary>
+          <p>It lets TabScroll read the titles, addresses, and favicons of tabs that are currently open so each card is recognizable. Chrome may call this browsing-history access because open-tab addresses are visible. TabScroll does not read stored history, and you can decline and use the limited view.</p>
+        </details>
+      </section>
+
+      <section class="final-cta">
+        <p class="eyebrow">Give every tab room to be seen</p>
+        <h2>Stop clicking random favicons.</h2>
+        <p>Install TabScroll and turn your next crowded window into a visual switcher.</p>
+        <a class="button button-light" href="https://chromewebstore.google.com/detail/tabscroll/monkhocbkbpjikgjkiaglgdannfmmmfd">Add TabScroll to Chrome <span aria-hidden="true">↗</span></a>
+      </section>
+    </main>
+
+    <footer>
+      <a class="brand" href="#top"><img src="assets/tabscroll-icon.svg" alt=""><span>TabScroll</span></a>
+      <p>Built for people with too many tabs.</p>
+      <div><a href="privacy/">Privacy</a><a href="https://github.com/Cpudados/tabsroller/issues">Support</a><a href="https://github.com/Cpudados/tabsroller">Source</a></div>
+    </footer>
+    <script src="script.js"></script>
+  </body>
+</html>

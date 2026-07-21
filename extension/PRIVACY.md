@@ -1,50 +1,49 @@
 # TabScroll Privacy Policy
 
-Last updated: 2026-04-21
+Last updated: 2026-07-19
 
 TabScroll is a browser extension that opens a full-screen tab switcher for the current browser window.
 
-Data TabScroll processes:
+## Data TabScroll processes
 
-- Current-window tab metadata needed to render the switcher, including each tab's title, URL or pending URL, favicon, position, and active state.
-- A screenshot preview of the currently active tab when you explicitly open TabScroll from the toolbar button or keyboard shortcut.
-- While the overlay is open, TabScroll may also try to capture screenshot previews of other eligible tabs in the same current window so you can recognize them more quickly.
-- A local visual theme preference (`night` or `white`) may be stored on your device so the overlay can reopen with your last selected theme.
+- Basic current-window tab state needed for switching, including tab identifiers, positions, and active state.
+- If the user enables the optional **tab details** permission: the title, URL or pending URL, and favicon of tabs currently open in that window.
+- A screenshot preview of the currently visible tab when the user explicitly opens TabScroll from the toolbar button or keyboard shortcut.
+- A local visual theme preference and a flag recording whether first-use onboarding has been completed.
 
-How TabScroll uses that data:
+## How TabScroll uses that data
 
-- To show the tabs in the current browser window inside the TabScroll interface.
-- To let you move through those tabs and activate the tab you choose.
-- To show visual previews that help you identify tabs more quickly.
-- To remember your local theme choice for the overlay.
+- To show the current window's tabs in the TabScroll interface.
+- To help the user recognize tabs and activate the one they choose.
+- To remember the local theme and avoid repeating onboarding.
 
-What TabScroll does not do:
+## What TabScroll does not do
 
-- It does not send tab metadata, URLs, screenshots, or theme preference to external servers.
-- It does not use analytics, advertising, tracking pixels, or third-party telemetry.
-- It does not sell, transfer, or share browsing data or screenshot previews with third parties.
-- It does not use browsing data or screenshots for any purpose unrelated to the tab switcher.
+- It does not send tab details, URLs, screenshots, or preferences to external servers.
+- It does not capture screenshots of background tabs.
+- It does not request or use Chrome's debugger permission.
+- It does not use analytics, advertising, tracking pixels, profiling, or third-party telemetry.
+- It does not sell, transfer, or share browsing data with third parties.
 
-Storage and retention:
+## Storage and retention
 
-- Tab metadata and screenshot previews are processed locally in the browser for the current overlay session.
-- Screenshot previews are kept only in memory as long as needed to render the current session.
-- TabScroll does not intentionally save screenshots or browsing history to extension storage for later use.
-- The theme preference may be stored locally on your device until you change it or clear extension or site data.
+- Tab details and the current-tab screenshot are processed locally for the active overlay session.
+- The screenshot is kept only in memory as long as needed to render that session and is not intentionally saved to extension storage.
+- The theme and onboarding-complete preferences remain in local extension storage until the user changes them or clears extension data.
+- TabScroll does not create or retain a database of browsing history.
 
-Permissions used:
+## Permissions used
 
-- `tabs`: used to read the tabs in the current browser window so TabScroll can show the list of tabs, including title, URL, favicon, order, and active state, and activate the selected tab.
-- `activeTab`: used only after explicit user invocation so TabScroll can access the current page, inject the overlay, and capture the currently visible tab preview.
-- `scripting`: used to inject the TabScroll overlay into the tab where you explicitly opened it.
-- `debugger`: used only while you explicitly use TabScroll to capture previews of other eligible tabs in the same window without visibly switching to them. Those previews are processed locally in the browser and used only to render the visual switcher.
+- `activeTab` (required): temporary access after explicit user invocation so TabScroll can capture the currently visible tab and inject the overlay on that page.
+- `scripting` (required): injects the TabScroll overlay host script after explicit user invocation.
+- `tabs` (optional): reads the titles, addresses, favicons, order, and active state of tabs currently open in the window. Chrome may label this capability as reading browsing history because it exposes open-tab addresses. TabScroll does not access Chrome's stored history.
 
-Chrome Web Store limited use statement:
+The switcher remains usable when the optional `tabs` permission is declined. Background tabs then use limited, generic labels.
 
-- TabScroll accesses browsing activity and tab preview data only to provide the user-facing tab switcher described in the Chrome Web Store listing and in the extension UI.
-- TabScroll does not use that data for advertising, profiling, analytics, or any unrelated purpose.
-- TabScroll does not transfer that data to third parties.
+## Chrome Web Store limited use statement
 
-Changes to this policy:
+TabScroll accesses open-tab details and the active-tab preview only to provide the user-facing tab switcher described in the Chrome Web Store listing and extension UI. TabScroll does not use that data for advertising, profiling, analytics, or any unrelated purpose, and it does not transfer that data to third parties.
 
-- If TabScroll's permissions, features, or data handling change, this policy should be updated before a new version is published.
+## Changes
+
+If TabScroll's permissions, features, or data handling change, this policy will be updated before the related release is published.

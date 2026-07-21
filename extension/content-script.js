@@ -31,36 +31,6 @@
       return;
     }
 
-    if (message?.type === "tabscroll:preview-updated") {
-      if (frame?.contentWindow) {
-        frame.contentWindow.postMessage(
-          {
-            type: "tabscroll:preview-updated",
-            tabId: message.tabId,
-            preview: message.preview,
-          },
-          "*"
-        );
-      }
-
-      sendResponse({ ok: true });
-      return;
-    }
-
-    if (message?.type === "tabscroll:preview-capture-complete") {
-      if (frame?.contentWindow) {
-        frame.contentWindow.postMessage(
-          {
-            type: "tabscroll:preview-capture-complete",
-          },
-          "*"
-        );
-      }
-
-      sendResponse({ ok: true });
-      return;
-    }
-
     return undefined;
   });
 
