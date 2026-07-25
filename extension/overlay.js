@@ -4,6 +4,7 @@
   const THEME_WHITE = "white";
   const WHEEL_THRESHOLD = 80;
   const WHEEL_LOCK_MS = 160;
+  const MAX_VISIBLE_DOTS = 15;
   const app = document.getElementById("app");
   const storedTheme = readStoredTheme();
   const systemThemeQuery =
@@ -14,6 +15,7 @@
     activeIndex: 0,
     loading: true,
     hostTabId: null,
+    standalone: false,
     previewCaptureRequested: false,
     wheelDelta: 0,
     wheelResetTimer: 0,
@@ -35,6 +37,13 @@
       '<path d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
       "</svg>",
     ].join(""),
+    collection: [
+      '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">',
+      '<rect x="4" y="7" width="13" height="12" rx="2.2" stroke="currentColor" stroke-width="1.7"/>',
+      '<path d="M7 4.5h10.5A2.5 2.5 0 0 1 20 7v8.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
+      '<path d="M8 11h5M8 14.5h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
+      "</svg>",
+    ].join(""),
     moon: [
       '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">',
       '<path d="M21 13.2A8.6 8.6 0 1 1 10.8 3a7 7 0 0 0 10.2 10.2Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -52,6 +61,7 @@
   window.addEventListener("keydown", handleKeyDown, true);
   window.addEventListener("message", handleParentMessage);
   document.addEventListener("click", handleClick);
+  document.addEventListener("error", handleImageError, true);
   bindSystemThemeListener();
   applyTheme();
   render();
@@ -177,6 +187,32 @@
     }
   }
 
+  function handleImageError(event) {
+    const image = event.target;
+
+    if (!(image instanceof HTMLImageElement)) {
+      return;
+    }
+
+    if (image.dataset.role === "favicon") {
+      image.remove();
+      return;
+    }
+
+    if (image.dataset.role !== "preview") {
+      return;
+    }
+
+    const index = Number(image.dataset.index);
+
+    if (!Number.isInteger(index) || !state.tabs[index]) {
+      return;
+    }
+
+    state.tabs[index].preview = "";
+    render();
+  }
+
   function moveSelection(direction) {
     setSelection(state.activeIndex + direction);
   }
@@ -247,6 +283,13 @@
   }
 
   function closeOverlay() {
+    if (state.standalone) {
+      void chrome.runtime.sendMessage({
+        type: "tabscroll:close-standalone",
+      });
+      return;
+    }
+
     window.parent.postMessage(
       {
         type: "tabscroll:close",
@@ -324,9 +367,7 @@
       return;
     }
 
-    const visibleCards = state.tabs
-      .map((tab, index) => ({ index, tab, position: getPosition(index) }))
-      .filter((item) => item.position);
+    const visibleCards = getVisibleCards();
 
     app.innerHTML = [
       '<div class="ts-shell" data-role="backdrop">',
@@ -381,17 +422,25 @@
 
   function renderCard(tab, index, position) {
     const title = escapeHtml(tab.title || "Untitled tab");
-    const url = escapeHtml(formatUrl(tab.url || ""));
+    const isCollection = tab.kind === "tab-collection";
+    const collectionName = escapeHtml(tab.collectionName || tab.title || "Tab collection");
+    const url = isCollection
+      ? "Saved-tab collection"
+      : escapeHtml(formatUrl(tab.url || ""));
     const preview = sanitizeAssetUrl(tab.preview);
     const favicon = sanitizeAssetUrl(tab.favicon);
+    const cardIcon = isCollection ? renderCollectionIcon() : renderFavicon(favicon);
     const selected = index === state.activeIndex;
+    const selectedLabel = isCollection ? "Selected Collection" : "Selected Tab";
 
     return [
-      `<button class="ts-card-wrap" type="button" data-role="card" data-index="${index}" data-position="${position}" aria-label="${title}">`,
+      `<button class="ts-card-wrap" type="button" data-role="card" data-index="${index}" data-position="${position}" data-kind="${isCollection ? "collection" : "tab"}" aria-label="${title}${isCollection ? ", tab collection" : ""}">`,
       '  <div class="ts-card">',
-      '    <div class="ts-preview">',
-      preview
-        ? `      <img src="${preview}" alt="Preview of ${title}">`
+      `    <div class="ts-preview${isCollection ? " ts-preview--collection" : ""}">`,
+      isCollection
+        ? renderCollectionPreview(collectionName)
+        : preview
+        ? `      <img src="${preview}" alt="Preview of ${title}" data-role="preview" data-index="${index}">`
         : [
             '      <div class="ts-preview-fallback">',
             '        <div class="ts-preview-fallback-inner">',
@@ -404,7 +453,7 @@
       "    </div>",
       '    <div class="ts-card-body">',
       '      <div class="ts-card-meta">',
-      `        <div class="ts-favicon-pill">${renderFavicon(favicon)}</div>`,
+      `        <div class="ts-favicon-pill">${cardIcon}</div>`,
       '        <div class="ts-card-copy">',
       `          <h2 class="ts-card-title">${title}</h2>`,
       `          <p class="ts-card-url">${url}</p>`,
@@ -412,7 +461,7 @@
         ? [
             '          <div class="ts-card-status">',
             '            <span class="ts-card-status-dot"></span>',
-            "            <span>Selected Tab</span>",
+            `            <span>${selectedLabel}</span>`,
             "          </div>",
           ].join("")
         : "",
@@ -424,11 +473,31 @@
     ].join("");
   }
 
+  function renderCollectionPreview(collectionName) {
+    return [
+      '      <div class="ts-collection-preview">',
+      '        <div class="ts-collection-stack" aria-hidden="true">',
+      '          <span class="ts-collection-sheet ts-collection-sheet--back"></span>',
+      '          <span class="ts-collection-sheet ts-collection-sheet--middle"></span>',
+      '          <span class="ts-collection-sheet ts-collection-sheet--front"></span>',
+      `          <span class="ts-collection-symbol">${icons.collection}</span>`,
+      "        </div>",
+      '        <div class="ts-collection-copy">',
+      '          <span class="ts-collection-eyebrow">Tab collection detected</span>',
+      "          <strong>Saved tabs live inside this page</strong>",
+      `          <span>Open ${collectionName} to browse or restore them.</span>`,
+      "        </div>",
+      "      </div>",
+    ].join("");
+  }
+
   function renderDots() {
+    const dotIndexes = getVisibleDotIndexes();
+
     return [
       '<div class="ts-dots">',
-      state.tabs
-        .map((_, index) => {
+      dotIndexes
+        .map((index) => {
           const className = index === state.activeIndex ? "ts-dot is-active" : "ts-dot";
           return `<button class="${className}" type="button" data-role="dot" data-index="${index}" aria-label="Go to tab ${index + 1}"></button>`;
         })
@@ -481,11 +550,16 @@
   }
 
   function renderFavicon(favicon) {
-    if (favicon) {
-      return `<img src="${favicon}" alt="">`;
-    }
+    return [
+      '<span class="ts-favicon-art">',
+      icons.fallback,
+      favicon ? `<img src="${favicon}" alt="" data-role="favicon">` : "",
+      "</span>",
+    ].join("");
+  }
 
-    return icons.fallback;
+  function renderCollectionIcon() {
+    return `<span class="ts-favicon-art ts-favicon-art--collection">${icons.collection}</span>`;
   }
 
   function getPosition(index) {
@@ -512,6 +586,35 @@
     }
 
     return "";
+  }
+
+  function getVisibleCards() {
+    const cards = [];
+    const firstIndex = Math.max(0, state.activeIndex - 2);
+    const lastIndex = Math.min(state.tabs.length - 1, state.activeIndex + 2);
+
+    for (let index = firstIndex; index <= lastIndex; index += 1) {
+      cards.push({
+        index,
+        tab: state.tabs[index],
+        position: getPosition(index),
+      });
+    }
+
+    return cards;
+  }
+
+  function getVisibleDotIndexes() {
+    const total = state.tabs.length;
+
+    if (total <= MAX_VISIBLE_DOTS) {
+      return Array.from({ length: total }, (_, index) => index);
+    }
+
+    const radius = Math.floor(MAX_VISIBLE_DOTS / 2);
+    const start = Math.max(0, Math.min(state.activeIndex - radius, total - MAX_VISIBLE_DOTS));
+
+    return Array.from({ length: MAX_VISIBLE_DOTS }, (_, offset) => start + offset);
   }
 
   function clampIndex(index) {
@@ -541,6 +644,7 @@
       hostTabIdValue && /^\d+$/.test(hostTabIdValue) ? Number(hostTabIdValue) : undefined;
 
     state.hostTabId = typeof hostTabId === "number" ? hostTabId : null;
+    state.standalone = hashParams.get("standalone") === "1";
 
     try {
       const response = await chrome.runtime.sendMessage({
@@ -564,7 +668,7 @@
       render();
       focusOverlay();
 
-      if (hasAdditionalPreviewCandidates()) {
+      if (!state.standalone && hasAdditionalPreviewCandidates()) {
         void startPreviewCapture();
       }
     } catch (_error) {
@@ -630,14 +734,18 @@
       return "";
     }
 
-    if (
-      value.startsWith("http://") ||
-      value.startsWith("https://") ||
-      value.startsWith("data:") ||
-      value.startsWith("chrome-extension://") ||
-      value.startsWith("moz-extension://")
-    ) {
-      return value;
+    try {
+      const parsed = new URL(value);
+
+      if (parsed.protocol === "http:" || parsed.protocol === "https:" || parsed.protocol === "data:") {
+        return value;
+      }
+
+      if (parsed.protocol === "chrome-extension:" && parsed.hostname === chrome.runtime.id) {
+        return value;
+      }
+    } catch (_error) {
+      return "";
     }
 
     return "";

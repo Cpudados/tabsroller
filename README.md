@@ -16,7 +16,8 @@ Notes:
 - TabScroll captures the active tab preview as soon as you open the overlay.
 - When you open the overlay, TabScroll also tries to capture previews for the other tabs in the current window from the background and streams them into the existing cards.
 - Chrome shows its own native debugging banner while those background previews are captured because TabScroll uses the `chrome.debugger` API for that step.
-- Chrome internal pages such as `chrome://` and some store pages do not allow content-script overlays, so TabScroll will not open there.
+- Chrome internal pages, browser store pages, and other extension pages do not allow content-script overlays. TabScroll opens its standalone tab view on those pages instead.
+- Tab-stashing extension pages such as OneTab are detected as saved-tab collections and shown with a dedicated collection card. Chrome keeps their saved links private, so TabScroll opens the collection page instead of trying to inspect its contents.
 - Protected pages and non-web URLs can still fall back to the visual placeholder.
 
 Permissions:

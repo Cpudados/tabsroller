@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TabScroll collection card harness</title>
+    <link rel="stylesheet" href="../overlay.css">
+  </head>
+  <body tabindex="-1">
+    <div id="app"></div>
+    <script>
+      localStorage.setItem("tabscroll:theme", "night");
+      window.chrome = window.chrome || {};
+      window.chrome.runtime = {
+        id: "tabscroll-test",
+        sendMessage: async (message) => {
+          if (message?.type === "tabscroll:get-session") {
+            return {
+              ok: true,
+              payload: {
+                activeIndex: 0,
+                tabs: [
+                  {
+                    id: 42,
+                    title: "OneTab",
+                    url: "chrome-extension://chphlpgkkbolifaimnlloiipkdnihall/onetab.html",
+                    favicon: "",
+                    preview: "",
+                    active: true,
+                    kind: "tab-collection",
+                    collectionName: "OneTab"
+                  }
+                ]
+              }
+            };
+          }
+
+          return { ok: true };
+        }
+      };
+    </script>
+    <script src="../overlay.js"></script>
+  </body>
+</html>
