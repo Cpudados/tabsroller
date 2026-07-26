@@ -40,6 +40,18 @@
   --radius-md: 0.75rem;
   --radius-card: 0.75rem;
   --radius-pill: 999px;
+
+  /* Preview cards stay carbon-black in both application themes. */
+  --color-carousel-paper: oklch(0.125 0.012 70);
+  --color-carousel-paper-deep: oklch(0.085 0.01 70);
+  --color-carousel-paper-raised: oklch(0.17 0.014 70);
+  --color-carousel-ink: oklch(0.94 0.018 88);
+  --color-carousel-ink-muted: oklch(0.71 0.018 82);
+  --color-carousel-rule: oklch(0.94 0.018 88 / 0.13);
+  --color-carousel-rule-strong: oklch(0.94 0.018 88 / 0.25);
+  --color-carousel-control: oklch(0.94 0.018 88 / 0.05);
+  --color-carousel-preview-overlay: oklch(0.105 0.012 70 / 0.96);
+  --color-carousel-shadow: oklch(0.025 0.006 70 / 0.7);
 }
 
 body[data-theme="night"] {

@@ -8,6 +8,9 @@ const backgroundSource = fs.readFileSync(
   path.join(__dirname, "..", "background.js"),
   "utf8"
 );
+const manifest = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8")
+);
 
 function loadBackground(chromeOverrides = {}) {
   const chrome = {
@@ -68,7 +71,13 @@ function loadBackground(chromeOverrides = {}) {
   return context;
 }
 
-test("tries the next screenshot option when the first command fails", async () => {
+test("declares debugger and session storage for optimized background previews", () => {
+  assert.match(backgroundSource, /chrome\.debugger/);
+  assert.equal(manifest.permissions.includes("debugger"), true);
+  assert.equal(manifest.permissions.includes("storage"), true);
+});
+
+test("downscales background screenshots and always detaches", async () => {
   const screenshotOptions = [];
   let detachCount = 0;
   const context = loadBackground({
@@ -78,16 +87,18 @@ test("tries the next screenshot option when the first command fails", async () =
         detachCount += 1;
       },
       async sendCommand(_debuggee, command, options) {
-        if (command === "Page.enable") {
-          return {};
+        if (command === "Page.getLayoutMetrics") {
+          return {
+            cssVisualViewport: {
+              pageX: 0,
+              pageY: 0,
+              clientWidth: 1600,
+              clientHeight: 900,
+            },
+          };
         }
 
         screenshotOptions.push(options);
-
-        if (screenshotOptions.length === 1) {
-          throw new Error("surface capture unavailable");
-        }
-
         return { data: "preview-data" };
       },
     },
@@ -96,34 +107,46 @@ test("tries the next screenshot option when the first command fails", async () =
   const preview = await context.captureTabPreviewWithDebugger(42);
 
   assert.equal(preview, "data:image/jpeg;base64,preview-data");
-  assert.equal(screenshotOptions.length, 2);
-  assert.equal(screenshotOptions[1].fromSurface, true);
-  assert.equal(screenshotOptions[1].optimizeForSpeed, undefined);
   assert.equal(detachCount, 1);
+  assert.equal(screenshotOptions.length, 1);
+  assert.equal(screenshotOptions[0].quality, 60);
+  assert.equal(screenshotOptions[0].clip.scale, 0.5);
+  assert.equal(screenshotOptions[0].clip.width, 1600);
+  assert.equal(screenshotOptions[0].clip.height, 900);
 });
 
-test("retries a transient debugger attach failure", async () => {
+test("stops immediately instead of reattaching after capture is canceled", async () => {
+  const captureState = {
+    cancelled: false,
+  };
   let attachCount = 0;
+  let screenshotCount = 0;
   const context = loadBackground({
     debugger: {
       async attach() {
         attachCount += 1;
-
-        if (attachCount === 1) {
-          throw new Error("target is navigating");
-        }
       },
       async detach() {},
       async sendCommand(_debuggee, command) {
-        return command === "Page.captureScreenshot" ? { data: "retry-data" } : {};
+        if (command === "Page.getLayoutMetrics") {
+          return {};
+        }
+
+        screenshotCount += 1;
+        captureState.cancelled = true;
+        throw new Error("canceled by user");
       },
     },
   });
 
-  const preview = await context.captureTabPreviewWithDebugger(42);
+  const preview = await context.captureTabPreviewWithDebugger(
+    42,
+    captureState
+  );
 
-  assert.equal(preview, "data:image/jpeg;base64,retry-data");
-  assert.equal(attachCount, 2);
+  assert.equal(preview, "");
+  assert.equal(attachCount, 1);
+  assert.equal(screenshotCount, 1);
 });
 
 test("retries the visible-tab preview after a transient failure", async () => {
@@ -148,33 +171,32 @@ test("retries the visible-tab preview after a transient failure", async () => {
   assert.equal(captureCount, 2);
 });
 
-test("captures eligible tabs that are still loading", async () => {
+test("captures four tabs in parallel and streams batched updates", async () => {
+  let activeAttachments = 0;
+  let maxActiveAttachments = 0;
   const messages = [];
+  const tabs = [
+    {
+      id: 1,
+      index: 0,
+      windowId: 7,
+      active: true,
+      url: "https://host.example/",
+    },
+    ...Array.from({ length: 5 }, (_, index) => ({
+      id: index + 2,
+      index: index + 1,
+      windowId: 7,
+      url: `https://preview-${index + 1}.example/`,
+    })),
+  ];
   const context = loadBackground({
     tabs: {
       async get() {
-        return {
-          id: 1,
-          index: 0,
-          windowId: 7,
-          url: "https://host.example/",
-        };
+        return tabs[0];
       },
       async query() {
-        return [
-          {
-            id: 1,
-            index: 0,
-            status: "complete",
-            url: "https://host.example/",
-          },
-          {
-            id: 2,
-            index: 1,
-            status: "loading",
-            url: "https://loading.example/",
-          },
-        ];
+        return tabs;
       },
       async sendMessage(_tabId, message) {
         messages.push(message);
@@ -182,24 +204,136 @@ test("captures eligible tabs that are still loading", async () => {
       },
     },
     debugger: {
-      async attach() {},
-      async detach() {},
-      async sendCommand(_debuggee, command) {
-        return command === "Page.captureScreenshot" ? { data: "loading-data" } : {};
+      async attach() {
+        activeAttachments += 1;
+        maxActiveAttachments = Math.max(maxActiveAttachments, activeAttachments);
+      },
+      async detach() {
+        activeAttachments -= 1;
+      },
+      async sendCommand(debuggee, command) {
+        if (command === "Page.getLayoutMetrics") {
+          return {
+            cssVisualViewport: {
+              pageX: 0,
+              pageY: 0,
+              clientWidth: 1280,
+              clientHeight: 720,
+            },
+          };
+        }
+
+        await Promise.resolve();
+        return { data: `preview-${debuggee.tabId}` };
       },
     },
   });
 
   await context.captureAllPreviewsForSession(1);
 
-  assert.deepEqual(
-    messages.map((message) => message.type),
-    [
-      "tabscroll:preview-updated",
-      "tabscroll:preview-capture-complete",
-    ]
+  const previewMessages = messages.filter(
+    (message) => message.type === "tabscroll:previews-updated"
   );
-  assert.equal(messages[0].tabId, 2);
+  const updates = previewMessages.flatMap((message) => message.previews);
+
+  assert.equal(maxActiveAttachments, 4);
+  assert.equal(activeAttachments, 0);
+  assert.equal(updates.length, 5);
+  assert.ok(previewMessages.every((message) => message.previews.length <= 4));
+  assert.equal(messages.at(-1).type, "tabscroll:preview-capture-complete");
+});
+
+test("reuses session-cached previews without attaching the debugger again", async () => {
+  const sessionData = {};
+  let attachCount = 0;
+  const tabs = [
+    {
+      id: 1,
+      index: 0,
+      windowId: 7,
+      active: true,
+      url: "https://host.example/",
+    },
+    {
+      id: 2,
+      index: 1,
+      windowId: 7,
+      url: "https://cached.example/",
+    },
+  ];
+  const chromeOverrides = {
+    storage: {
+      session: {
+        async get(key) {
+          return {
+            [key]: sessionData[key],
+          };
+        },
+        async set(values) {
+          Object.assign(sessionData, values);
+        },
+      },
+    },
+    tabs: {
+      async get() {
+        return tabs[0];
+      },
+      async query() {
+        return tabs;
+      },
+      async captureVisibleTab() {
+        return "data:image/jpeg;base64,active-preview";
+      },
+      async sendMessage() {
+        return { ok: true };
+      },
+    },
+    debugger: {
+      async attach() {
+        attachCount += 1;
+      },
+      async detach() {},
+      async sendCommand(_debuggee, command) {
+        if (command === "Page.getLayoutMetrics") {
+          return {
+            cssVisualViewport: {
+              pageX: 0,
+              pageY: 0,
+              clientWidth: 1280,
+              clientHeight: 720,
+            },
+          };
+        }
+
+        return { data: "cached-preview" };
+      },
+    },
+  };
+  const firstContext = loadBackground(chromeOverrides);
+
+  await firstContext.captureAllPreviewsForSession(1);
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(attachCount, 1);
+  assert.equal(sessionData["tabscroll:preview-cache"].length, 1);
+
+  const secondContext = loadBackground(chromeOverrides);
+  const payload = await secondContext.buildOverlayPayload(tabs[0]);
+
+  assert.equal(payload.tabs[1].preview, "data:image/jpeg;base64,cached-preview");
+
+  await secondContext.captureAllPreviewsForSession(1);
+  assert.equal(attachCount, 1);
+
+  tabs[1].url = "https://cached.example/after-navigation";
+  const thirdContext = loadBackground(chromeOverrides);
+  const navigatedPayload = await thirdContext.buildOverlayPayload(tabs[0]);
+
+  assert.equal(navigatedPayload.tabs[1].preview, "");
+
+  await thirdContext.captureAllPreviewsForSession(1);
+  assert.equal(attachCount, 2);
 });
 
 test("suggests the most recently accessed inactive tab", async () => {

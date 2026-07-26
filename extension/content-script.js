@@ -31,13 +31,12 @@
       return;
     }
 
-    if (message?.type === "tabscroll:preview-updated") {
+    if (message?.type === "tabscroll:previews-updated") {
       if (frame?.contentWindow) {
         frame.contentWindow.postMessage(
           {
-            type: "tabscroll:preview-updated",
-            tabId: message.tabId,
-            preview: message.preview,
+            type: "tabscroll:previews-updated",
+            previews: message.previews,
           },
           "*"
         );
@@ -97,6 +96,13 @@
   function closeOverlay() {
     if (!frame) {
       return;
+    }
+
+    if (typeof hostTabId === "number") {
+      void chrome.runtime.sendMessage({
+        type: "tabscroll:cancel-preview-capture",
+        tabId: hostTabId,
+      });
     }
 
     frame.remove();

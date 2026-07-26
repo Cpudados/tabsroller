@@ -11,7 +11,6 @@ const overlaySource = fs.readFileSync(
 
 test("renders the recent-tab jump-back suggestion", async () => {
   const app = { innerHTML: "" };
-  const backdropStates = [];
   const listeners = new Map();
   const body = {
     dataset: {},
@@ -32,11 +31,6 @@ test("renders the recent-tab jump-back suggestion", async () => {
   };
   const localStorage = new Map();
   const window = {
-    TabScrollBackdrop: {
-      setState(value) {
-        backdropStates.push(value);
-      },
-    },
     addEventListener(type, listener) {
       listeners.set(type, listener);
     },
@@ -131,10 +125,4 @@ test("renders the recent-tab jump-back suggestion", async () => {
   assert.match(app.innerHTML, /Quarterly planning/);
   assert.match(app.innerHTML, /Active 4m ago/);
   assert.match(app.innerHTML, /data-action="activate-recent"/);
-  assert.deepEqual(JSON.parse(JSON.stringify(backdropStates.at(-1))), {
-    activeIndex: 0,
-    totalTabs: 2,
-    theme: "night",
-    loading: false,
-  });
 });

@@ -6,29 +6,59 @@ const {
 } = globalThis.TabScrollTabClassifier;
 const TOGGLE_MESSAGE = "tabscroll:toggle-overlay";
 const ACTIVATE_MESSAGE = "tabscroll:activate-tab";
+const CLOSE_TAB_MESSAGE = "tabscroll:close-tab";
+const TOGGLE_PIN_MESSAGE = "tabscroll:toggle-pin";
+const TOGGLE_MUTE_MESSAGE = "tabscroll:toggle-mute";
 const CLOSE_STANDALONE_MESSAGE = "tabscroll:close-standalone";
 const GET_SESSION_MESSAGE = "tabscroll:get-session";
 const REQUEST_ALL_PREVIEWS_MESSAGE = "tabscroll:request-all-previews";
-const PREVIEW_UPDATED_MESSAGE = "tabscroll:preview-updated";
+const CANCEL_PREVIEW_CAPTURE_MESSAGE = "tabscroll:cancel-preview-capture";
+const PREVIEWS_UPDATED_MESSAGE = "tabscroll:previews-updated";
 const PREVIEW_CAPTURE_COMPLETE_MESSAGE = "tabscroll:preview-capture-complete";
 const DEBUGGER_PROTOCOL_VERSION = "1.3";
 const PREVIEW_FORMAT = "jpeg";
 const PREVIEW_QUALITY = 65;
+const BACKGROUND_PREVIEW_QUALITY = 60;
+const BACKGROUND_PREVIEW_MAX_WIDTH = 800;
+const BACKGROUND_PREVIEW_MAX_HEIGHT = 500;
 const MAX_BACKGROUND_PREVIEWS = 24;
+const BACKGROUND_PREVIEW_CONCURRENCY = 4;
+const PREVIEW_UPDATE_BATCH_SIZE = 4;
+const PREVIEW_CACHE_STORAGE_KEY = "tabscroll:preview-cache";
+const PREVIEW_CACHE_TTL_MS = 10 * 60 * 1000;
+const MAX_PREVIEW_CACHE_ENTRIES = 32;
 const VISIBLE_PREVIEW_ATTEMPTS = 2;
 const VISIBLE_PREVIEW_RETRY_DELAY_MS = 600;
 const DEBUGGER_CAPTURE_ATTEMPTS = 2;
-const DEBUGGER_CAPTURE_RETRY_DELAY_MS = 250;
-const SCREENSHOT_CAPTURE_OPTIONS = [
-  { fromSurface: true, optimizeForSpeed: true },
-  { fromSurface: true },
-  { fromSurface: false },
-];
+const DEBUGGER_CAPTURE_RETRY_DELAY_MS = 120;
 const MAX_TITLE_LENGTH = 512;
 const MAX_URL_LENGTH = 8192;
 const MAX_FAVICON_LENGTH = 4096;
 const pendingSessions = new Map();
 const activePreviewCaptures = new Map();
+const previewCache = new Map();
+let previewCacheLoadPromise = null;
+let previewCachePersistPromise = Promise.resolve();
+
+chrome.tabs.onUpdated?.addListener?.((tabId, changeInfo) => {
+  if (changeInfo.url || changeInfo.status === "loading") {
+    invalidateCachedPreview(tabId);
+  }
+});
+
+chrome.tabs.onRemoved?.addListener?.((tabId) => {
+  invalidateCachedPreview(tabId);
+});
+
+chrome.debugger?.onDetach?.addListener?.((_source, reason) => {
+  if (reason !== "canceled_by_user") {
+    return;
+  }
+
+  for (const captureState of activePreviewCaptures.values()) {
+    captureState.cancelled = true;
+  }
+});
 
 chrome.action.onClicked.addListener((tab) => {
   if (!tab?.id) {
@@ -50,6 +80,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === ACTIVATE_MESSAGE) {
     void activateTab(message.tabId)
       .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+
+    return true;
+  }
+
+  if (message?.type === CLOSE_TAB_MESSAGE) {
+    void closeTab(message.tabId)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+
+    return true;
+  }
+
+  if (message?.type === TOGGLE_PIN_MESSAGE) {
+    void togglePinnedTab(message.tabId)
+      .then((tab) => sendResponse({ ok: true, tab }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+
+    return true;
+  }
+
+  if (message?.type === TOGGLE_MUTE_MESSAGE) {
+    void toggleMutedTab(message.tabId)
+      .then((tab) => sendResponse({ ok: true, tab }))
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
 
     return true;
@@ -78,6 +132,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     return true;
   }
+
+  if (message?.type === CANCEL_PREVIEW_CAPTURE_MESSAGE) {
+    cancelPreviewCapture(message.tabId);
+    sendResponse({ ok: true });
+    return;
+  }
+
 });
 
 async function openForActiveTab() {
@@ -148,40 +209,70 @@ async function getSessionForSender(sender, explicitTabId) {
 
 async function buildOverlayPayload(hostTab) {
   const hostClassification = classifyTab(hostTab);
-  const [windowTabs, activePreview] = await Promise.all([
-    chrome.tabs.query({ windowId: hostTab.windowId }),
+  const [allTabs, activePreview] = await Promise.all([
+    chrome.tabs.query({ windowType: "normal" }),
     hostClassification.kind === TAB_COLLECTION_KIND
       ? Promise.resolve("")
       : captureVisiblePreview(hostTab.windowId),
+    ensurePreviewCacheLoaded(),
   ]);
+  const resolvedActivePreview = activePreview || getCachedPreview(hostTab);
 
-  const sortedTabs = windowTabs
-    .filter((tab) => typeof tab.id === "number" && !isTabScrollPage(tab.url || tab.pendingUrl || ""))
-    .sort((left, right) => left.index - right.index);
+  const eligibleTabs = allTabs.filter(
+    (tab) =>
+      typeof tab.id === "number" &&
+      typeof tab.windowId === "number" &&
+      !isTabScrollPage(tab.url || tab.pendingUrl || "")
+  );
+  const { sortedTabs, windowLabels } = orderTabsByWindow(eligibleTabs, hostTab.windowId);
+  const duplicateCounts = countDuplicateKeys(sortedTabs);
+  const duplicateGroupIds = createDuplicateGroupIds(sortedTabs, duplicateCounts);
 
   const activeIndex = Math.max(
     sortedTabs.findIndex((tab) => tab.id === hostTab.id),
     0
   );
   const recentTab = sortedTabs
-    .filter((tab) => tab.id !== hostTab.id && Number.isFinite(tab.lastAccessed))
+    .filter(
+      (tab) =>
+        tab.windowId === hostTab.windowId &&
+        tab.id !== hostTab.id &&
+        Number.isFinite(tab.lastAccessed)
+    )
     .sort((left, right) => right.lastAccessed - left.lastAccessed)[0];
 
   return {
     activeIndex,
+    currentWindowId: hostTab.windowId,
     recentTabId: typeof recentTab?.id === "number" ? recentTab.id : null,
     tabs: sortedTabs.map((tab) => {
       const classification = classifyTab(tab);
       const isCollection = classification.kind === TAB_COLLECTION_KIND;
+      const tabUrl = tab.url || tab.pendingUrl || "";
+      const duplicateKey = normalizeDuplicateKey(tabUrl);
+      const isDuplicate = Boolean(duplicateKey && duplicateCounts.get(duplicateKey) > 1);
 
       return {
         id: tab.id,
+        windowId: tab.windowId,
+        index: tab.index,
+        windowLabel: windowLabels.get(tab.windowId) || "Window",
         title: truncateText(tab.title || "Untitled tab", MAX_TITLE_LENGTH),
-        url: truncateText(tab.url || tab.pendingUrl || "", MAX_URL_LENGTH),
+        url: truncateText(tabUrl, MAX_URL_LENGTH),
         favicon: isCollection ? "" : normalizeFavicon(tab.favIconUrl),
-        preview: !isCollection && tab.id === hostTab.id ? activePreview : "",
+        preview: isCollection
+          ? ""
+          : tab.id === hostTab.id
+          ? resolvedActivePreview
+          : getCachedPreview(tab),
         active: tab.id === hostTab.id,
         lastAccessed: Number.isFinite(tab.lastAccessed) ? tab.lastAccessed : null,
+        pinned: Boolean(tab.pinned),
+        audible: Boolean(tab.audible),
+        muted: Boolean(tab.mutedInfo?.muted),
+        discarded: Boolean(tab.discarded),
+        duplicate: isDuplicate,
+        duplicateKey: isDuplicate ? duplicateGroupIds.get(duplicateKey) || "" : "",
         kind: classification.kind,
         collectionName: truncateText(classification.collectionName, MAX_TITLE_LENGTH),
       };
@@ -245,13 +336,36 @@ async function ensureContentScript(tabId) {
 }
 
 async function activateTab(tabId) {
-  if (typeof tabId !== "number") {
-    throw new Error("Missing tab id");
-  }
+  validateTabId(tabId);
 
   const targetTab = await chrome.tabs.get(tabId);
   await chrome.windows.update(targetTab.windowId, { focused: true });
   await chrome.tabs.update(tabId, { active: true });
+}
+
+async function closeTab(tabId) {
+  validateTabId(tabId);
+  await chrome.tabs.remove(tabId);
+}
+
+async function togglePinnedTab(tabId) {
+  validateTabId(tabId);
+  const tab = await chrome.tabs.get(tabId);
+  const updatedTab = await chrome.tabs.update(tabId, {
+    pinned: !Boolean(tab.pinned),
+  });
+
+  return normalizeUpdatedTab(updatedTab);
+}
+
+async function toggleMutedTab(tabId) {
+  validateTabId(tabId);
+  const tab = await chrome.tabs.get(tabId);
+  const updatedTab = await chrome.tabs.update(tabId, {
+    muted: !Boolean(tab.mutedInfo?.muted),
+  });
+
+  return normalizeUpdatedTab(updatedTab);
 }
 
 async function captureVisiblePreview(windowId) {
@@ -295,51 +409,151 @@ async function requestAllPreviewsForSession(sender, explicitTabId) {
     return;
   }
 
-  const task = captureAllPreviewsForSession(sessionTabId)
+  const captureState = {
+    cancelled: false,
+  };
+  const task = captureAllPreviewsForSession(sessionTabId, captureState)
     .catch((error) => {
       console.warn("TabScroll preview capture failed.", error);
     })
     .finally(() => {
-      activePreviewCaptures.delete(sessionTabId);
+      if (activePreviewCaptures.get(sessionTabId) === captureState) {
+        activePreviewCaptures.delete(sessionTabId);
+      }
     });
 
-  activePreviewCaptures.set(sessionTabId, task);
+  captureState.task = task;
+  activePreviewCaptures.set(sessionTabId, captureState);
 }
 
-async function captureAllPreviewsForSession(sessionTabId) {
+function cancelPreviewCapture(sessionTabId) {
+  if (typeof sessionTabId !== "number") {
+    return;
+  }
+
+  const captureState = activePreviewCaptures.get(sessionTabId);
+
+  if (captureState) {
+    captureState.cancelled = true;
+  }
+}
+
+async function captureAllPreviewsForSession(sessionTabId, captureState = { cancelled: false }) {
+  let capturedAnyPreview = false;
+
   try {
+    await ensurePreviewCacheLoaded();
     const hostTab = await chrome.tabs.get(sessionTabId);
-    const windowTabs = await chrome.tabs.query({ windowId: hostTab.windowId });
-    const sortedTabs = windowTabs
-      .filter((tab) => typeof tab.id === "number")
-      .sort((left, right) => left.index - right.index);
-    const hostIndex = Math.max(
-      sortedTabs.findIndex((tab) => tab.id === hostTab.id),
-      0
-    );
+    const allTabs = await chrome.tabs.query({ windowType: "normal" });
+    const eligibleTabs = allTabs
+      .filter(
+        (tab) =>
+          typeof tab.id === "number" &&
+          !isTabScrollPage(tab.url || tab.pendingUrl || "")
+      )
+      .map((tab) =>
+        typeof tab.windowId === "number"
+          ? tab
+          : { ...tab, windowId: hostTab.windowId }
+      );
+    const { sortedTabs, windowOrder } = orderTabsByWindow(eligibleTabs, hostTab.windowId);
+    const activeIndexByWindow = getActiveIndexByWindow(sortedTabs);
     const previewTabs = sortedTabs
       .filter((tab) => {
-        if (tab.id === hostTab.id || tab.discarded) {
+        if (tab.id === hostTab.id || tab.discarded || getCachedPreview(tab)) {
           return false;
         }
 
         return isPreviewCandidateUrl(tab.url || tab.pendingUrl || "");
       })
       .sort((left, right) => {
-        const leftDistance = Math.abs(left.index - hostIndex);
-        const rightDistance = Math.abs(right.index - hostIndex);
-        return leftDistance - rightDistance;
+        const leftWindowRank = left.windowId === hostTab.windowId ? 0 : 1;
+        const rightWindowRank = right.windowId === hostTab.windowId ? 0 : 1;
+
+        if (leftWindowRank !== rightWindowRank) {
+          return leftWindowRank - rightWindowRank;
+        }
+
+        const leftWindowOrder = windowOrder.get(left.windowId) ?? Number.MAX_SAFE_INTEGER;
+        const rightWindowOrder = windowOrder.get(right.windowId) ?? Number.MAX_SAFE_INTEGER;
+
+        if (leftWindowOrder !== rightWindowOrder) {
+          return leftWindowOrder - rightWindowOrder;
+        }
+
+        const leftCenter =
+          left.windowId === hostTab.windowId
+            ? hostTab.index
+            : activeIndexByWindow.get(left.windowId) ?? 0;
+        const rightCenter =
+          right.windowId === hostTab.windowId
+            ? hostTab.index
+            : activeIndexByWindow.get(right.windowId) ?? 0;
+        const leftDistance = Math.abs(left.index - leftCenter);
+        const rightDistance = Math.abs(right.index - rightCenter);
+
+        if (leftDistance !== rightDistance) {
+          return leftDistance - rightDistance;
+        }
+
+        if (Boolean(left.active) !== Boolean(right.active)) {
+          return left.active ? -1 : 1;
+        }
+
+        return left.index - right.index;
       })
       .slice(0, MAX_BACKGROUND_PREVIEWS);
+    const pendingUpdates = [];
+    let nextPreviewIndex = 0;
 
-    for (const tab of previewTabs) {
-      const preview = await captureTabPreviewWithDebugger(tab.id);
+    async function flushPreviewUpdates() {
+      if (!pendingUpdates.length || captureState.cancelled) {
+        return;
+      }
 
-      if (preview) {
-        await notifyPreviewUpdated(sessionTabId, tab.id, preview);
+      const previews = pendingUpdates.splice(0, pendingUpdates.length);
+      await notifyPreviewsUpdated(sessionTabId, previews);
+    }
+
+    async function captureWorker() {
+      while (!captureState.cancelled) {
+        const previewIndex = nextPreviewIndex;
+        nextPreviewIndex += 1;
+
+        if (previewIndex >= previewTabs.length) {
+          return;
+        }
+
+        const tab = previewTabs[previewIndex];
+        const preview = await captureTabPreviewWithDebugger(tab.id, captureState);
+
+        if (!preview || captureState.cancelled) {
+          continue;
+        }
+
+        cachePreview(tab, preview);
+        capturedAnyPreview = true;
+        pendingUpdates.push({
+          tabId: tab.id,
+          preview,
+        });
+
+        if (pendingUpdates.length >= PREVIEW_UPDATE_BATCH_SIZE) {
+          await flushPreviewUpdates();
+        }
       }
     }
+
+    const workerCount = Math.min(BACKGROUND_PREVIEW_CONCURRENCY, previewTabs.length);
+    await Promise.all(
+      Array.from({ length: workerCount }, () => captureWorker())
+    );
+    await flushPreviewUpdates();
   } finally {
+    if (capturedAnyPreview) {
+      schedulePreviewCachePersist();
+    }
+
     await notifyPreviewCaptureComplete(sessionTabId);
   }
 }
@@ -355,6 +569,431 @@ function isPreviewCandidateUrl(value) {
 
 function isTabScrollPage(value) {
   return typeof value === "string" && value.startsWith(chrome.runtime.getURL("overlay.html"));
+}
+
+function orderTabsByWindow(tabs, currentWindowId) {
+  const tabsByWindow = new Map();
+
+  for (const tab of tabs) {
+    if (!tabsByWindow.has(tab.windowId)) {
+      tabsByWindow.set(tab.windowId, []);
+    }
+
+    tabsByWindow.get(tab.windowId).push(tab);
+  }
+
+  const windowIds = [];
+
+  if (tabsByWindow.has(currentWindowId)) {
+    windowIds.push(currentWindowId);
+  }
+
+  for (const windowId of tabsByWindow.keys()) {
+    if (windowId !== currentWindowId) {
+      windowIds.push(windowId);
+    }
+  }
+
+  const sortedTabs = [];
+  const windowLabels = new Map();
+  const windowOrder = new Map();
+
+  windowIds.forEach((windowId, windowIndex) => {
+    windowLabels.set(windowId, windowIndex === 0 ? "Current Window" : `Window ${windowIndex + 1}`);
+    windowOrder.set(windowId, windowIndex);
+    tabsByWindow
+      .get(windowId)
+      .sort((left, right) => left.index - right.index)
+      .forEach((tab) => sortedTabs.push(tab));
+  });
+
+  return {
+    sortedTabs,
+    windowLabels,
+    windowOrder,
+  };
+}
+
+function countDuplicateKeys(tabs) {
+  const counts = new Map();
+
+  for (const tab of tabs) {
+    const key = normalizeDuplicateKey(tab.url || tab.pendingUrl || "");
+
+    if (key) {
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+
+  return counts;
+}
+
+function createDuplicateGroupIds(tabs, duplicateCounts) {
+  const groupIds = new Map();
+
+  for (const tab of tabs) {
+    const key = normalizeDuplicateKey(tab.url || tab.pendingUrl || "");
+
+    if (!key || duplicateCounts.get(key) < 2 || groupIds.has(key)) {
+      continue;
+    }
+
+    groupIds.set(key, `duplicate-${groupIds.size + 1}`);
+  }
+
+  return groupIds;
+}
+
+function normalizeDuplicateKey(value) {
+  try {
+    const parsed = new URL(value);
+
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "";
+    }
+
+    parsed.hash = "";
+    parsed.hostname = parsed.hostname.toLowerCase();
+    return parsed.href;
+  } catch (_error) {
+    return "";
+  }
+}
+
+function getActiveIndexByWindow(tabs) {
+  const activeIndexByWindow = new Map();
+
+  for (const tab of tabs) {
+    if (tab.active && !activeIndexByWindow.has(tab.windowId)) {
+      activeIndexByWindow.set(tab.windowId, tab.index);
+    }
+  }
+
+  return activeIndexByWindow;
+}
+
+async function ensurePreviewCacheLoaded() {
+  if (previewCacheLoadPromise) {
+    return previewCacheLoadPromise;
+  }
+
+  previewCacheLoadPromise = (async () => {
+    const sessionStorage = chrome.storage?.session;
+
+    if (!sessionStorage?.get) {
+      return;
+    }
+
+    try {
+      const stored = await sessionStorage.get(PREVIEW_CACHE_STORAGE_KEY);
+      const entries = stored?.[PREVIEW_CACHE_STORAGE_KEY];
+      const now = Date.now();
+
+      if (!Array.isArray(entries)) {
+        return;
+      }
+
+      for (const entry of entries) {
+        if (
+          !Number.isInteger(entry?.tabId) ||
+          typeof entry.url !== "string" ||
+          typeof entry.preview !== "string" ||
+          !entry.preview.startsWith("data:image/") ||
+          !Number.isFinite(entry.capturedAt) ||
+          now - entry.capturedAt > PREVIEW_CACHE_TTL_MS
+        ) {
+          continue;
+        }
+
+        previewCache.set(entry.tabId, entry);
+      }
+
+      trimPreviewCache();
+    } catch (_error) {
+      // Session caching is an optimization; capture still works without it.
+    }
+  })();
+
+  return previewCacheLoadPromise;
+}
+
+function getCachedPreview(tab) {
+  if (!Number.isInteger(tab?.id)) {
+    return "";
+  }
+
+  const cached = previewCache.get(tab.id);
+  const tabUrl = tab.url || tab.pendingUrl || "";
+
+  if (
+    !cached ||
+    cached.url !== tabUrl ||
+    Date.now() - cached.capturedAt > PREVIEW_CACHE_TTL_MS
+  ) {
+    if (cached) {
+      previewCache.delete(tab.id);
+      schedulePreviewCachePersist();
+    }
+
+    return "";
+  }
+
+  return cached.preview;
+}
+
+function cachePreview(tab, preview) {
+  if (
+    !Number.isInteger(tab?.id) ||
+    typeof preview !== "string" ||
+    !preview.startsWith("data:image/")
+  ) {
+    return;
+  }
+
+  previewCache.delete(tab.id);
+  previewCache.set(tab.id, {
+    tabId: tab.id,
+    url: tab.url || tab.pendingUrl || "",
+    preview,
+    capturedAt: Date.now(),
+  });
+  trimPreviewCache();
+}
+
+function trimPreviewCache() {
+  while (previewCache.size > MAX_PREVIEW_CACHE_ENTRIES) {
+    const oldestTabId = previewCache.keys().next().value;
+    previewCache.delete(oldestTabId);
+  }
+}
+
+function invalidateCachedPreview(tabId) {
+  if (!Number.isInteger(tabId)) {
+    return;
+  }
+
+  void ensurePreviewCacheLoaded().then(() => {
+    if (previewCache.delete(tabId)) {
+      schedulePreviewCachePersist();
+    }
+  });
+}
+
+function schedulePreviewCachePersist() {
+  previewCachePersistPromise = previewCachePersistPromise
+    .catch(() => {})
+    .then(() => persistPreviewCache());
+}
+
+async function persistPreviewCache() {
+  const sessionStorage = chrome.storage?.session;
+
+  if (!sessionStorage?.set) {
+    return;
+  }
+
+  try {
+    await sessionStorage.set({
+      [PREVIEW_CACHE_STORAGE_KEY]: Array.from(previewCache.values()),
+    });
+  } catch (_error) {
+    // Ignore quota or shutdown races; the current overlay already has previews.
+  }
+}
+
+async function notifyPreviewsUpdated(sessionTabId, previews) {
+  if (
+    typeof sessionTabId !== "number" ||
+    !Array.isArray(previews) ||
+    !previews.length
+  ) {
+    return;
+  }
+
+  try {
+    await safeSendMessage(sessionTabId, {
+      type: PREVIEWS_UPDATED_MESSAGE,
+      previews,
+    });
+  } catch (_error) {
+    // The overlay may have closed before the preview batch finished.
+  }
+}
+
+async function notifyPreviewCaptureComplete(sessionTabId) {
+  if (typeof sessionTabId !== "number") {
+    return;
+  }
+
+  try {
+    await safeSendMessage(sessionTabId, {
+      type: PREVIEW_CAPTURE_COMPLETE_MESSAGE,
+    });
+  } catch (_error) {
+    // The overlay may have closed before capture completed.
+  }
+}
+
+async function captureTabPreviewWithDebugger(tabId, captureState = { cancelled: false }) {
+  for (let attempt = 0; attempt < DEBUGGER_CAPTURE_ATTEMPTS; attempt += 1) {
+    if (captureState.cancelled) {
+      return "";
+    }
+
+    if (attempt > 0) {
+      await wait(DEBUGGER_CAPTURE_RETRY_DELAY_MS);
+    }
+
+    const preview = await captureTabPreviewAttemptWithDebugger(tabId, captureState);
+
+    if (preview) {
+      return preview;
+    }
+  }
+
+  return "";
+}
+
+async function captureTabPreviewAttemptWithDebugger(
+  tabId,
+  captureState = { cancelled: false }
+) {
+  const debuggee = { tabId };
+
+  try {
+    await chrome.debugger.attach(debuggee, DEBUGGER_PROTOCOL_VERSION);
+  } catch (_error) {
+    return "";
+  }
+
+  try {
+    const screenshotOptions = await getBackgroundScreenshotOptions(debuggee);
+
+    for (const options of screenshotOptions) {
+      if (captureState.cancelled) {
+        return "";
+      }
+
+      try {
+        const result = await chrome.debugger.sendCommand(debuggee, "Page.captureScreenshot", {
+          format: PREVIEW_FORMAT,
+          quality: BACKGROUND_PREVIEW_QUALITY,
+          ...options,
+        });
+        const data = typeof result?.data === "string" ? result.data : "";
+
+        if (data) {
+          return `data:image/${PREVIEW_FORMAT};base64,${data}`;
+        }
+      } catch (_error) {
+        continue;
+      }
+    }
+
+    return "";
+  } catch (_error) {
+    return "";
+  } finally {
+    try {
+      await chrome.debugger.detach(debuggee);
+    } catch (_error) {
+      // Ignore detach failures caused by closed tabs or canceled sessions.
+    }
+  }
+}
+
+async function getBackgroundScreenshotOptions(debuggee) {
+  const fallbackOptions = [
+    {
+      fromSurface: true,
+      optimizeForSpeed: true,
+      captureBeyondViewport: false,
+    },
+    {
+      fromSurface: true,
+      captureBeyondViewport: false,
+    },
+    {
+      fromSurface: false,
+    },
+  ];
+
+  try {
+    const metrics = await chrome.debugger.sendCommand(
+      debuggee,
+      "Page.getLayoutMetrics"
+    );
+    const viewport =
+      metrics?.cssVisualViewport ||
+      metrics?.cssLayoutViewport ||
+      metrics?.visualViewport ||
+      metrics?.layoutViewport;
+    const width = Number(viewport?.clientWidth);
+    const height = Number(viewport?.clientHeight);
+
+    if (!(width > 0) || !(height > 0)) {
+      return fallbackOptions;
+    }
+
+    const scale = Math.max(
+      0.1,
+      Math.min(
+        1,
+        BACKGROUND_PREVIEW_MAX_WIDTH / width,
+        BACKGROUND_PREVIEW_MAX_HEIGHT / height
+      )
+    );
+    const clip = {
+      x: Number.isFinite(viewport.pageX) ? viewport.pageX : 0,
+      y: Number.isFinite(viewport.pageY) ? viewport.pageY : 0,
+      width,
+      height,
+      scale,
+    };
+
+    return [
+      {
+        fromSurface: true,
+        optimizeForSpeed: true,
+        captureBeyondViewport: false,
+        clip,
+      },
+      {
+        fromSurface: true,
+        captureBeyondViewport: false,
+        clip,
+      },
+      ...fallbackOptions,
+    ];
+  } catch (_error) {
+    return fallbackOptions;
+  }
+}
+
+function validateTabId(tabId) {
+  if (!Number.isInteger(tabId) || tabId < 0) {
+    throw new Error("Invalid tab id");
+  }
+}
+
+function normalizeUpdatedTab(tab) {
+  if (!tab || typeof tab.id !== "number") {
+    throw new Error("Tab update did not return tab metadata");
+  }
+
+  return {
+    id: tab.id,
+    windowId: typeof tab.windowId === "number" ? tab.windowId : null,
+    index: Number.isInteger(tab.index) ? tab.index : null,
+    title: truncateText(tab.title || "Untitled tab", MAX_TITLE_LENGTH),
+    url: truncateText(tab.url || tab.pendingUrl || "", MAX_URL_LENGTH),
+    active: Boolean(tab.active),
+    pinned: Boolean(tab.pinned),
+    audible: Boolean(tab.audible),
+    muted: Boolean(tab.mutedInfo?.muted),
+    discarded: Boolean(tab.discarded),
+    lastAccessed: Number.isFinite(tab.lastAccessed) ? tab.lastAccessed : null,
+  };
 }
 
 function normalizeFavicon(value) {
@@ -382,97 +1021,6 @@ function normalizeFavicon(value) {
 function truncateText(value, maxLength) {
   const text = typeof value === "string" ? value : "";
   return text.length > maxLength ? text.slice(0, maxLength) : text;
-}
-
-async function notifyPreviewUpdated(sessionTabId, tabId, preview) {
-  if (typeof sessionTabId !== "number" || typeof tabId !== "number" || !preview) {
-    return;
-  }
-
-  try {
-    await safeSendMessage(sessionTabId, {
-      type: PREVIEW_UPDATED_MESSAGE,
-      tabId,
-      preview,
-    });
-  } catch (_error) {
-    // The overlay may have closed before the preview finished warming.
-  }
-}
-
-async function notifyPreviewCaptureComplete(sessionTabId) {
-  if (typeof sessionTabId !== "number") {
-    return;
-  }
-
-  try {
-    await safeSendMessage(sessionTabId, {
-      type: PREVIEW_CAPTURE_COMPLETE_MESSAGE,
-    });
-  } catch (_error) {
-    // The overlay may have closed before capture completed.
-  }
-}
-
-async function captureTabPreviewWithDebugger(tabId) {
-  for (let attempt = 0; attempt < DEBUGGER_CAPTURE_ATTEMPTS; attempt += 1) {
-    if (attempt > 0) {
-      await wait(DEBUGGER_CAPTURE_RETRY_DELAY_MS);
-    }
-
-    const preview = await captureTabPreviewAttemptWithDebugger(tabId);
-
-    if (preview) {
-      return preview;
-    }
-  }
-
-  return "";
-}
-
-async function captureTabPreviewAttemptWithDebugger(tabId) {
-  const debuggee = { tabId };
-
-  try {
-    await chrome.debugger.attach(debuggee, DEBUGGER_PROTOCOL_VERSION);
-  } catch (_error) {
-    return "";
-  }
-
-  try {
-    try {
-      await chrome.debugger.sendCommand(debuggee, "Page.enable");
-    } catch (_error) {
-      // Some pages do not need explicit Page.enable before capture.
-    }
-
-    for (const options of SCREENSHOT_CAPTURE_OPTIONS) {
-      try {
-        const result = await chrome.debugger.sendCommand(debuggee, "Page.captureScreenshot", {
-          format: PREVIEW_FORMAT,
-          quality: PREVIEW_QUALITY,
-          ...options,
-        });
-        const data = typeof result?.data === "string" ? result.data : "";
-
-        if (data) {
-          return `data:image/${PREVIEW_FORMAT};base64,${data}`;
-        }
-      } catch (_error) {
-        continue;
-      }
-    }
-
-    return "";
-  } catch (_error) {
-    return "";
-  } finally {
-    try {
-      await chrome.debugger.detach(debuggee);
-    } catch (_error) {
-      // Ignore detach failures caused by closed tabs or canceled sessions.
-    }
-  }
 }
 
 function wait(delayMs) {
