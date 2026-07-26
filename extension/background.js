@@ -163,9 +163,13 @@ async function buildOverlayPayload(hostTab) {
     sortedTabs.findIndex((tab) => tab.id === hostTab.id),
     0
   );
+  const recentTab = sortedTabs
+    .filter((tab) => tab.id !== hostTab.id && Number.isFinite(tab.lastAccessed))
+    .sort((left, right) => right.lastAccessed - left.lastAccessed)[0];
 
   return {
     activeIndex,
+    recentTabId: typeof recentTab?.id === "number" ? recentTab.id : null,
     tabs: sortedTabs.map((tab) => {
       const classification = classifyTab(tab);
       const isCollection = classification.kind === TAB_COLLECTION_KIND;
@@ -177,6 +181,7 @@ async function buildOverlayPayload(hostTab) {
         favicon: isCollection ? "" : normalizeFavicon(tab.favIconUrl),
         preview: !isCollection && tab.id === hostTab.id ? activePreview : "",
         active: tab.id === hostTab.id,
+        lastAccessed: Number.isFinite(tab.lastAccessed) ? tab.lastAccessed : null,
         kind: classification.kind,
         collectionName: truncateText(classification.collectionName, MAX_TITLE_LENGTH),
       };

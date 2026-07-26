@@ -201,3 +201,52 @@ test("captures eligible tabs that are still loading", async () => {
   );
   assert.equal(messages[0].tabId, 2);
 });
+
+test("suggests the most recently accessed inactive tab", async () => {
+  const context = loadBackground({
+    tabs: {
+      async query() {
+        return [
+          {
+            id: 1,
+            index: 0,
+            windowId: 7,
+            title: "Current",
+            url: "https://current.example/",
+            lastAccessed: 300,
+          },
+          {
+            id: 2,
+            index: 1,
+            windowId: 7,
+            title: "Older",
+            url: "https://older.example/",
+            lastAccessed: 100,
+          },
+          {
+            id: 3,
+            index: 2,
+            windowId: 7,
+            title: "Recent",
+            url: "https://recent.example/",
+            lastAccessed: 250,
+          },
+        ];
+      },
+      async captureVisibleTab() {
+        return "";
+      },
+    },
+  });
+
+  const payload = await context.buildOverlayPayload({
+    id: 1,
+    index: 0,
+    windowId: 7,
+    title: "Current",
+    url: "https://current.example/",
+  });
+
+  assert.equal(payload.recentTabId, 3);
+  assert.equal(payload.tabs[2].lastAccessed, 250);
+});

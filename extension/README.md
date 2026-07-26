@@ -7,6 +7,8 @@ What it does:
 - Opens a full-screen TabScroll overlay from the toolbar button or the `Ctrl+Shift+K` / `Command+Shift+K` shortcut.
 - Pulls the real tabs from the current browser window.
 - Uses scroll or arrow keys to move through the session one tab at a time.
+- Suggests the most recently active tab as a one-click "Jump back" action (`R`).
+- Maps the session into a local Three.js tab current that rotates with your selection and stops rendering once it settles.
 - Activates the selected tab with `Enter` or by clicking the centered card.
 - Closes with `Esc`.
 
@@ -18,10 +20,12 @@ Notes:
 - Chrome internal pages, browser store pages, and other extension pages do not allow content-script overlays. TabScroll opens its standalone tab view on those pages instead.
 - Tab-stashing extension pages such as OneTab are detected as saved-tab collections and shown with a dedicated collection card. Chrome keeps their saved links private, so TabScroll opens the collection page instead of trying to inspect its contents.
 - Protected pages and non-web URLs can still fall back to the visual placeholder.
+- The 3D background is bundled with the extension, uses no remote assets, and falls back to a static tab composition when WebGL is unavailable.
+- Three.js is included under the MIT license in `vendor/three-LICENSE.txt`.
 
 Permissions:
 
-- `tabs`: reads the tabs in the current browser window so TabScroll can show each tab's title, URL, favicon, order, and active state inside the switcher. This is the core feature of the extension.
+- `tabs`: reads the tabs in the current browser window so TabScroll can show each tab's title, URL, favicon, order, active state, and recent access time inside the switcher. The access time powers the local "Jump back" suggestion.
 - `activeTab`: is used only when you explicitly open TabScroll. It gives temporary access to the page you invoked the extension on so TabScroll can inject the overlay and capture a preview of the tab you are currently viewing.
 - `scripting`: injects the overlay host script into the current tab after you explicitly invoke the extension.
 - `debugger`: is used only to capture preview screenshots of the other tabs in the same current window without visibly switching to them. Those previews are used only to render the visual tab switcher locally in the browser.

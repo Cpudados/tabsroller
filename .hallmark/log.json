@@ -1,0 +1,16 @@
+[
+  {
+    "date": "2026-07-26",
+    "macrostructure": "Workbench",
+    "theme": "Graphite Amber",
+    "enrichment": "none",
+    "brief": "Professional tab navigator background with a recent-tab jump-back suggestion"
+  },
+  {
+    "date": "2026-07-26",
+    "macrostructure": "Map / Diagram",
+    "theme": "Carbon Vermilion",
+    "enrichment": "Interactive Three.js tab current",
+    "brief": "Replace the artificial grid treatment with a state-driven spatial session map"
+  }
+]

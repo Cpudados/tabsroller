@@ -4,9 +4,19 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>TabScroll collection card harness</title>
+    <link rel="stylesheet" href="../tokens.css">
     <link rel="stylesheet" href="../overlay.css">
   </head>
-  <body tabindex="-1">
+  <body data-theme="night" tabindex="-1">
+    <div id="ts-scene-fallback" class="ts-scene-fallback" aria-hidden="true">
+      <span class="ts-fallback-tab ts-fallback-tab--1"></span>
+      <span class="ts-fallback-tab ts-fallback-tab--2"></span>
+      <span class="ts-fallback-tab ts-fallback-tab--3"></span>
+      <span class="ts-fallback-tab ts-fallback-tab--4"></span>
+      <span class="ts-fallback-tab ts-fallback-tab--5"></span>
+      <span class="ts-fallback-tab ts-fallback-tab--6"></span>
+    </div>
+    <canvas id="ts-scene" aria-hidden="true"></canvas>
     <div id="app"></div>
     <script>
       localStorage.setItem("tabscroll:theme", "night");
@@ -19,6 +29,7 @@
               ok: true,
               payload: {
                 activeIndex: 0,
+                recentTabId: 43,
                 tabs: [
                   {
                     id: 42,
@@ -27,8 +38,20 @@
                     favicon: "",
                     preview: "",
                     active: true,
+                    lastAccessed: Date.now(),
                     kind: "tab-collection",
                     collectionName: "OneTab"
+                  },
+                  {
+                    id: 43,
+                    title: "Quarterly planning — workspace",
+                    url: "https://example.com/workspace/quarterly-planning",
+                    favicon: "",
+                    preview: "",
+                    active: false,
+                    lastAccessed: Date.now() - 4 * 60 * 1000,
+                    kind: "regular-tab",
+                    collectionName: ""
                   }
                 ]
               }
@@ -40,5 +63,6 @@
       };
     </script>
     <script src="../overlay.js"></script>
+    <script type="module" src="../tab-scene.js"></script>
   </body>
 </html>

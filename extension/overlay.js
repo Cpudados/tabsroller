@@ -13,6 +13,7 @@
   const state = {
     tabs: [],
     activeIndex: 0,
+    recentTabId: null,
     loading: true,
     hostTabId: null,
     standalone: false,
@@ -53,6 +54,11 @@
       '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">',
       '<circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"/>',
       '<path d="M12 2v2.3M12 19.7V22M4.93 4.93l1.63 1.63M17.44 17.44l1.63 1.63M2 12h2.3M19.7 12H22M4.93 19.07l1.63-1.63M17.44 6.56l1.63-1.63" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+      "</svg>",
+    ].join(""),
+    return: [
+      '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">',
+      '<path d="M9 7 4 12l5 5M5 12h8.5a5.5 5.5 0 1 1 0 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
       "</svg>",
     ].join(""),
   };
@@ -103,6 +109,16 @@
     if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "t") {
       event.preventDefault();
       toggleTheme();
+      return;
+    }
+
+    if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "r") {
+      const recentTab = getRecentTab();
+
+      if (recentTab) {
+        event.preventDefault();
+        void activateTab(recentTab);
+      }
       return;
     }
 
@@ -157,6 +173,15 @@
 
       if (action === "activate") {
         activateSelection();
+        return;
+      }
+
+      if (action === "activate-recent") {
+        const recentTab = getRecentTab();
+
+        if (recentTab) {
+          void activateTab(recentTab);
+        }
         return;
       }
     }
@@ -236,6 +261,10 @@
       return;
     }
 
+    await activateTab(tab);
+  }
+
+  async function activateTab(tab) {
     try {
       await chrome.runtime.sendMessage({
         type: "tabscroll:activate-tab",
@@ -335,6 +364,8 @@
   }
 
   function render() {
+    syncBackdrop();
+
     if (state.loading) {
       app.innerHTML = [
         '<div class="ts-shell" data-role="backdrop">',
@@ -377,6 +408,7 @@
       visibleCards.map((item) => renderCard(item.tab, item.index, item.position)).join(""),
       "    </div>",
       "  </div>",
+      renderRecentSuggestion(),
       renderDots(),
       renderCounter(),
       renderHint(),
@@ -391,7 +423,7 @@
       `    <div class="ts-brand-badge">${icons.app}</div>`,
       '    <div class="ts-brand-copy">',
       '      <h1 class="ts-brand-title">TabScroll</h1>',
-      '      <p class="ts-brand-subtitle">Quick Tab Switcher</p>',
+      '      <p class="ts-brand-subtitle">Spatial tab index</p>',
       "    </div>",
       "  </div>",
       '  <div class="ts-actions">',
@@ -407,14 +439,14 @@
 
   function renderThemeToggle() {
     const nextTheme = state.theme === THEME_NIGHT ? THEME_WHITE : THEME_NIGHT;
+    const nextThemeLabel = nextTheme === THEME_NIGHT ? "dark" : "light";
 
     return [
-      `    <button class="ts-theme-toggle" type="button" data-action="toggle-theme" aria-label="Switch to ${nextTheme} mode">`,
-      '      <span class="ts-theme-toggle-label">Theme</span>',
+      `    <button class="ts-theme-toggle" type="button" data-action="toggle-theme" aria-label="Switch to ${nextThemeLabel} mode">`,
       `      <span class="ts-theme-toggle-track" data-theme="${state.theme}" aria-hidden="true">`,
       '        <span class="ts-theme-toggle-thumb"></span>',
-      `        <span class="ts-theme-toggle-option ts-theme-toggle-option--night">${icons.moon}<span>Night</span></span>`,
-      `        <span class="ts-theme-toggle-option ts-theme-toggle-option--white">${icons.sun}<span>White</span></span>`,
+      `        <span class="ts-theme-toggle-option ts-theme-toggle-option--night">${icons.moon}<span>Dark</span></span>`,
+      `        <span class="ts-theme-toggle-option ts-theme-toggle-option--white">${icons.sun}<span>Light</span></span>`,
       "      </span>",
       "    </button>",
     ].join("");
@@ -431,7 +463,7 @@
     const favicon = sanitizeAssetUrl(tab.favicon);
     const cardIcon = isCollection ? renderCollectionIcon() : renderFavicon(favicon);
     const selected = index === state.activeIndex;
-    const selectedLabel = isCollection ? "Selected Collection" : "Selected Tab";
+    const selectedLabel = isCollection ? "Collection in focus" : "Tab in focus";
 
     return [
       `<button class="ts-card-wrap" type="button" data-role="card" data-index="${index}" data-position="${position}" data-kind="${isCollection ? "collection" : "tab"}" aria-label="${title}${isCollection ? ", tab collection" : ""}">`,
@@ -510,6 +542,31 @@
     return `<div class="ts-counter">${state.activeIndex + 1} / ${state.tabs.length}</div>`;
   }
 
+  function renderRecentSuggestion() {
+    const tab = getRecentTab();
+
+    if (!tab) {
+      return "";
+    }
+
+    const title = escapeHtml(tab.title || "Untitled tab");
+    const favicon = sanitizeAssetUrl(tab.favicon);
+    const recency = escapeHtml(formatRecency(tab.lastAccessed));
+
+    return [
+      '<button class="ts-recent" type="button" data-action="activate-recent">',
+      `  <span class="ts-recent-icon">${icons.return}</span>`,
+      '  <span class="ts-recent-context">Back to</span>',
+      `  <span class="ts-recent-favicon">${renderFavicon(favicon)}</span>`,
+      '  <span class="ts-recent-copy">',
+      `    <strong>${title}</strong>`,
+      `    <span>${recency}</span>`,
+      "  </span>",
+      '  <span class="ts-recent-key">R</span>',
+      "</button>",
+    ].join("");
+  }
+
   function renderHint() {
     const shortcutKeys = getShortcutKeys();
 
@@ -527,6 +584,16 @@
       "    </div>",
       '    <span class="ts-hint-copy">to switch theme</span>',
       "  </div>",
+      getRecentTab()
+        ? [
+            '  <div class="ts-hint-row">',
+            '    <div class="ts-hint-keys">',
+            '      <span class="ts-key">R</span>',
+            "    </div>",
+            '    <span class="ts-hint-copy">to jump back</span>',
+            "  </div>",
+          ].join("")
+        : "",
       '  <div class="ts-hint-row">',
       '    <div class="ts-hint-keys">',
       '      <span class="ts-key">←</span>',
@@ -547,6 +614,18 @@
     }
 
     return ["Ctrl", "Shift", "K"];
+  }
+
+  function syncBackdrop() {
+    const backdropState = {
+      activeIndex: state.activeIndex,
+      totalTabs: state.tabs.length,
+      theme: state.theme,
+      loading: state.loading,
+    };
+
+    window.TabScrollSceneState = backdropState;
+    window.TabScrollBackdrop?.setState?.(backdropState);
   }
 
   function renderFavicon(favicon) {
@@ -630,6 +709,34 @@
     return index < 0 ? 0 : index;
   }
 
+  function getRecentTab() {
+    return state.tabs.find((tab) => tab.id === state.recentTabId && !tab.active) || null;
+  }
+
+  function formatRecency(value) {
+    if (!Number.isFinite(value)) {
+      return "Recently active";
+    }
+
+    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - value) / 60000));
+
+    if (elapsedMinutes < 1) {
+      return "Active just now";
+    }
+
+    if (elapsedMinutes < 60) {
+      return `Active ${elapsedMinutes}m ago`;
+    }
+
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+
+    if (elapsedHours < 24) {
+      return `Active ${elapsedHours}h ago`;
+    }
+
+    return "Active earlier";
+  }
+
   function focusOverlay() {
     window.requestAnimationFrame(() => {
       document.body.focus();
@@ -657,6 +764,8 @@
       }
 
       state.tabs = Array.isArray(response.payload?.tabs) ? response.payload.tabs : [];
+      state.recentTabId =
+        typeof response.payload?.recentTabId === "number" ? response.payload.recentTabId : null;
       state.previewCaptureRequested = false;
       state.activeIndex = clampIndex(
         typeof response.payload?.activeIndex === "number"
@@ -674,6 +783,7 @@
     } catch (_error) {
       state.tabs = [];
       state.activeIndex = 0;
+      state.recentTabId = null;
       state.previewCaptureRequested = false;
       state.loading = false;
       render();

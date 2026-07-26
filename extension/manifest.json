@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TabScroll",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "description": "A full-screen tab switcher that makes crowded browser sessions easier to navigate.",
   "permissions": [
     "tabs",
@@ -33,8 +33,12 @@
     {
       "resources": [
         "overlay.html",
+        "tokens.css",
         "overlay.css",
         "overlay.js",
+        "tab-scene.js",
+        "vendor/three.module.min.js",
+        "vendor/three-LICENSE.txt",
         "icons/*"
       ],
       "matches": [
