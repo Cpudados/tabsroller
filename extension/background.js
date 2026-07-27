@@ -1,4 +1,8 @@
-importScripts("tab-classifier.js");
+const chrome = globalThis.browser || globalThis.chrome;
+
+if (typeof importScripts === "function") {
+  importScripts("tab-classifier.js");
+}
 
 const {
   TAB_COLLECTION_KIND,
@@ -15,7 +19,6 @@ const REQUEST_ALL_PREVIEWS_MESSAGE = "tabscroll:request-all-previews";
 const CANCEL_PREVIEW_CAPTURE_MESSAGE = "tabscroll:cancel-preview-capture";
 const PREVIEWS_UPDATED_MESSAGE = "tabscroll:previews-updated";
 const PREVIEW_CAPTURE_COMPLETE_MESSAGE = "tabscroll:preview-capture-complete";
-const DEBUGGER_PROTOCOL_VERSION = "1.3";
 const PREVIEW_FORMAT = "jpeg";
 const PREVIEW_QUALITY = 65;
 const BACKGROUND_PREVIEW_QUALITY = 60;
@@ -29,8 +32,8 @@ const PREVIEW_CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_PREVIEW_CACHE_ENTRIES = 32;
 const VISIBLE_PREVIEW_ATTEMPTS = 2;
 const VISIBLE_PREVIEW_RETRY_DELAY_MS = 600;
-const DEBUGGER_CAPTURE_ATTEMPTS = 2;
-const DEBUGGER_CAPTURE_RETRY_DELAY_MS = 120;
+const BACKGROUND_PREVIEW_ATTEMPTS = 2;
+const BACKGROUND_PREVIEW_RETRY_DELAY_MS = 120;
 const MAX_TITLE_LENGTH = 512;
 const MAX_URL_LENGTH = 8192;
 const MAX_FAVICON_LENGTH = 4096;
@@ -48,16 +51,6 @@ chrome.tabs.onUpdated?.addListener?.((tabId, changeInfo) => {
 
 chrome.tabs.onRemoved?.addListener?.((tabId) => {
   invalidateCachedPreview(tabId);
-});
-
-chrome.debugger?.onDetach?.addListener?.((_source, reason) => {
-  if (reason !== "canceled_by_user") {
-    return;
-  }
-
-  for (const captureState of activePreviewCaptures.values()) {
-    captureState.cancelled = true;
-  }
 });
 
 chrome.action.onClicked.addListener((tab) => {
@@ -525,7 +518,7 @@ async function captureAllPreviewsForSession(sessionTabId, captureState = { cance
         }
 
         const tab = previewTabs[previewIndex];
-        const preview = await captureTabPreviewWithDebugger(tab.id, captureState);
+        const preview = await captureTabPreview(tab.id, captureState);
 
         if (!preview || captureState.cancelled) {
           continue;
@@ -834,139 +827,85 @@ async function notifyPreviewCaptureComplete(sessionTabId) {
   }
 }
 
-async function captureTabPreviewWithDebugger(tabId, captureState = { cancelled: false }) {
-  for (let attempt = 0; attempt < DEBUGGER_CAPTURE_ATTEMPTS; attempt += 1) {
+async function captureTabPreview(tabId, captureState = { cancelled: false }) {
+  for (let attempt = 0; attempt < BACKGROUND_PREVIEW_ATTEMPTS; attempt += 1) {
     if (captureState.cancelled) {
       return "";
     }
 
     if (attempt > 0) {
-      await wait(DEBUGGER_CAPTURE_RETRY_DELAY_MS);
+      await wait(BACKGROUND_PREVIEW_RETRY_DELAY_MS);
     }
 
-    const preview = await captureTabPreviewAttemptWithDebugger(tabId, captureState);
+    try {
+      const preview = await chrome.tabs.captureTab(tabId, {
+        format: PREVIEW_FORMAT,
+        quality: BACKGROUND_PREVIEW_QUALITY,
+      });
 
-    if (preview) {
-      return preview;
+      if (preview) {
+        return await downscaleCapturedPreview(preview);
+      }
+    } catch (_error) {
+      continue;
     }
   }
 
   return "";
 }
 
-async function captureTabPreviewAttemptWithDebugger(
-  tabId,
-  captureState = { cancelled: false }
-) {
-  const debuggee = { tabId };
-
-  try {
-    await chrome.debugger.attach(debuggee, DEBUGGER_PROTOCOL_VERSION);
-  } catch (_error) {
-    return "";
+async function downscaleCapturedPreview(preview) {
+  if (
+    typeof preview !== "string" ||
+    !preview.startsWith("data:image/") ||
+    typeof fetch !== "function" ||
+    typeof createImageBitmap !== "function" ||
+    typeof OffscreenCanvas !== "function"
+  ) {
+    return preview;
   }
 
+  let bitmap;
+
   try {
-    const screenshotOptions = await getBackgroundScreenshotOptions(debuggee);
+    const response = await fetch(preview);
+    bitmap = await createImageBitmap(await response.blob());
+    const scale = Math.min(
+      1,
+      BACKGROUND_PREVIEW_MAX_WIDTH / bitmap.width,
+      BACKGROUND_PREVIEW_MAX_HEIGHT / bitmap.height
+    );
 
-    for (const options of screenshotOptions) {
-      if (captureState.cancelled) {
-        return "";
-      }
-
-      try {
-        const result = await chrome.debugger.sendCommand(debuggee, "Page.captureScreenshot", {
-          format: PREVIEW_FORMAT,
-          quality: BACKGROUND_PREVIEW_QUALITY,
-          ...options,
-        });
-        const data = typeof result?.data === "string" ? result.data : "";
-
-        if (data) {
-          return `data:image/${PREVIEW_FORMAT};base64,${data}`;
-        }
-      } catch (_error) {
-        continue;
-      }
+    if (!(scale < 1)) {
+      return preview;
     }
 
-    return "";
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = new OffscreenCanvas(width, height);
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      return preview;
+    }
+
+    context.drawImage(bitmap, 0, 0, width, height);
+    const blob = await canvas.convertToBlob({
+      type: `image/${PREVIEW_FORMAT}`,
+      quality: BACKGROUND_PREVIEW_QUALITY / 100,
+    });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = "";
+
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    }
+
+    return `data:image/${PREVIEW_FORMAT};base64,${btoa(binary)}`;
   } catch (_error) {
-    return "";
+    return preview;
   } finally {
-    try {
-      await chrome.debugger.detach(debuggee);
-    } catch (_error) {
-      // Ignore detach failures caused by closed tabs or canceled sessions.
-    }
-  }
-}
-
-async function getBackgroundScreenshotOptions(debuggee) {
-  const fallbackOptions = [
-    {
-      fromSurface: true,
-      optimizeForSpeed: true,
-      captureBeyondViewport: false,
-    },
-    {
-      fromSurface: true,
-      captureBeyondViewport: false,
-    },
-    {
-      fromSurface: false,
-    },
-  ];
-
-  try {
-    const metrics = await chrome.debugger.sendCommand(
-      debuggee,
-      "Page.getLayoutMetrics"
-    );
-    const viewport =
-      metrics?.cssVisualViewport ||
-      metrics?.cssLayoutViewport ||
-      metrics?.visualViewport ||
-      metrics?.layoutViewport;
-    const width = Number(viewport?.clientWidth);
-    const height = Number(viewport?.clientHeight);
-
-    if (!(width > 0) || !(height > 0)) {
-      return fallbackOptions;
-    }
-
-    const scale = Math.max(
-      0.1,
-      Math.min(
-        1,
-        BACKGROUND_PREVIEW_MAX_WIDTH / width,
-        BACKGROUND_PREVIEW_MAX_HEIGHT / height
-      )
-    );
-    const clip = {
-      x: Number.isFinite(viewport.pageX) ? viewport.pageX : 0,
-      y: Number.isFinite(viewport.pageY) ? viewport.pageY : 0,
-      width,
-      height,
-      scale,
-    };
-
-    return [
-      {
-        fromSurface: true,
-        optimizeForSpeed: true,
-        captureBeyondViewport: false,
-        clip,
-      },
-      {
-        fromSurface: true,
-        captureBeyondViewport: false,
-        clip,
-      },
-      ...fallbackOptions,
-    ];
-  } catch (_error) {
-    return fallbackOptions;
+    bitmap?.close?.();
   }
 }
 
@@ -1008,7 +947,7 @@ function normalizeFavicon(value) {
       return value;
     }
 
-    if (parsed.protocol === "chrome-extension:" && parsed.hostname === chrome.runtime.id) {
+    if (value.startsWith(chrome.runtime.getURL(""))) {
       return value;
     }
   } catch (_error) {

@@ -1,4 +1,5 @@
 (() => {
+  const chrome = globalThis.browser || globalThis.chrome;
   const INSTANCE_KEY = "__tabscrollContentScriptLoaded__";
 
   if (window[INSTANCE_KEY]) {

@@ -1,4 +1,5 @@
 (function () {
+  const chrome = globalThis.browser || globalThis.chrome;
   const THEME_STORAGE_KEY = "tabscroll:theme";
   const THEME_NIGHT = "night";
   const THEME_WHITE = "white";
@@ -1688,7 +1689,7 @@
         return value;
       }
 
-      if (parsed.protocol === "chrome-extension:" && parsed.hostname === chrome.runtime.id) {
+      if (value.startsWith(chrome.runtime.getURL(""))) {
         return value;
       }
     } catch (_error) {

@@ -36,7 +36,6 @@ function loadBackground(chromeOverrides = {}) {
       async executeScript() {},
     },
     tabs: {},
-    debugger: {},
     ...chromeOverrides,
   };
   const context = vm.createContext({
@@ -71,82 +70,56 @@ function loadBackground(chromeOverrides = {}) {
   return context;
 }
 
-test("declares debugger and session storage for optimized background previews", () => {
-  assert.match(backgroundSource, /chrome\.debugger/);
-  assert.equal(manifest.permissions.includes("debugger"), true);
+test("declares Firefox preview access and session storage without debugger permission", () => {
+  assert.doesNotMatch(backgroundSource, /chrome\.debugger/);
+  assert.equal(manifest.permissions.includes("debugger"), false);
   assert.equal(manifest.permissions.includes("storage"), true);
+  assert.equal(manifest.host_permissions.includes("<all_urls>"), true);
+  assert.deepEqual(manifest.background.scripts, [
+    "tab-classifier.js",
+    "background.js",
+  ]);
 });
 
-test("downscales background screenshots and always detaches", async () => {
-  const screenshotOptions = [];
-  let detachCount = 0;
+test("uses Firefox captureTab for inactive-tab previews", async () => {
+  let captureCount = 0;
   const context = loadBackground({
-    debugger: {
-      async attach() {},
-      async detach() {
-        detachCount += 1;
-      },
-      async sendCommand(_debuggee, command, options) {
-        if (command === "Page.getLayoutMetrics") {
-          return {
-            cssVisualViewport: {
-              pageX: 0,
-              pageY: 0,
-              clientWidth: 1600,
-              clientHeight: 900,
-            },
-          };
-        }
-
-        screenshotOptions.push(options);
-        return { data: "preview-data" };
+    tabs: {
+      async captureTab(tabId, options) {
+        captureCount += 1;
+        assert.equal(tabId, 42);
+        assert.equal(options.format, "jpeg");
+        assert.equal(options.quality, 60);
+        return "data:image/jpeg;base64,firefox-preview";
       },
     },
   });
 
-  const preview = await context.captureTabPreviewWithDebugger(42);
+  const preview = await context.captureTabPreview(42);
 
-  assert.equal(preview, "data:image/jpeg;base64,preview-data");
-  assert.equal(detachCount, 1);
-  assert.equal(screenshotOptions.length, 1);
-  assert.equal(screenshotOptions[0].quality, 60);
-  assert.equal(screenshotOptions[0].clip.scale, 0.5);
-  assert.equal(screenshotOptions[0].clip.width, 1600);
-  assert.equal(screenshotOptions[0].clip.height, 900);
+  assert.equal(preview, "data:image/jpeg;base64,firefox-preview");
+  assert.equal(captureCount, 1);
 });
 
-test("stops immediately instead of reattaching after capture is canceled", async () => {
+test("stops immediately instead of retrying after capture is canceled", async () => {
   const captureState = {
     cancelled: false,
   };
-  let attachCount = 0;
-  let screenshotCount = 0;
+  let captureCount = 0;
   const context = loadBackground({
-    debugger: {
-      async attach() {
-        attachCount += 1;
-      },
-      async detach() {},
-      async sendCommand(_debuggee, command) {
-        if (command === "Page.getLayoutMetrics") {
-          return {};
-        }
-
-        screenshotCount += 1;
+    tabs: {
+      async captureTab() {
+        captureCount += 1;
         captureState.cancelled = true;
         throw new Error("canceled by user");
       },
     },
   });
 
-  const preview = await context.captureTabPreviewWithDebugger(
-    42,
-    captureState
-  );
+  const preview = await context.captureTabPreview(42, captureState);
 
   assert.equal(preview, "");
-  assert.equal(attachCount, 1);
-  assert.equal(screenshotCount, 1);
+  assert.equal(captureCount, 1);
 });
 
 test("retries the visible-tab preview after a transient failure", async () => {
@@ -172,8 +145,8 @@ test("retries the visible-tab preview after a transient failure", async () => {
 });
 
 test("captures four tabs in parallel and streams batched updates", async () => {
-  let activeAttachments = 0;
-  let maxActiveAttachments = 0;
+  let activeCaptures = 0;
+  let maxActiveCaptures = 0;
   const messages = [];
   const tabs = [
     {
@@ -202,29 +175,12 @@ test("captures four tabs in parallel and streams batched updates", async () => {
         messages.push(message);
         return { ok: true };
       },
-    },
-    debugger: {
-      async attach() {
-        activeAttachments += 1;
-        maxActiveAttachments = Math.max(maxActiveAttachments, activeAttachments);
-      },
-      async detach() {
-        activeAttachments -= 1;
-      },
-      async sendCommand(debuggee, command) {
-        if (command === "Page.getLayoutMetrics") {
-          return {
-            cssVisualViewport: {
-              pageX: 0,
-              pageY: 0,
-              clientWidth: 1280,
-              clientHeight: 720,
-            },
-          };
-        }
-
+      async captureTab(tabId) {
+        activeCaptures += 1;
+        maxActiveCaptures = Math.max(maxActiveCaptures, activeCaptures);
         await Promise.resolve();
-        return { data: `preview-${debuggee.tabId}` };
+        activeCaptures -= 1;
+        return `data:image/jpeg;base64,preview-${tabId}`;
       },
     },
   });
@@ -236,16 +192,16 @@ test("captures four tabs in parallel and streams batched updates", async () => {
   );
   const updates = previewMessages.flatMap((message) => message.previews);
 
-  assert.equal(maxActiveAttachments, 4);
-  assert.equal(activeAttachments, 0);
+  assert.equal(maxActiveCaptures, 4);
+  assert.equal(activeCaptures, 0);
   assert.equal(updates.length, 5);
   assert.ok(previewMessages.every((message) => message.previews.length <= 4));
   assert.equal(messages.at(-1).type, "tabscroll:preview-capture-complete");
 });
 
-test("reuses session-cached previews without attaching the debugger again", async () => {
+test("reuses session-cached previews without capturing the tab again", async () => {
   const sessionData = {};
-  let attachCount = 0;
+  let captureCount = 0;
   const tabs = [
     {
       id: 1,
@@ -284,28 +240,12 @@ test("reuses session-cached previews without attaching the debugger again", asyn
       async captureVisibleTab() {
         return "data:image/jpeg;base64,active-preview";
       },
+      async captureTab() {
+        captureCount += 1;
+        return "data:image/jpeg;base64,cached-preview";
+      },
       async sendMessage() {
         return { ok: true };
-      },
-    },
-    debugger: {
-      async attach() {
-        attachCount += 1;
-      },
-      async detach() {},
-      async sendCommand(_debuggee, command) {
-        if (command === "Page.getLayoutMetrics") {
-          return {
-            cssVisualViewport: {
-              pageX: 0,
-              pageY: 0,
-              clientWidth: 1280,
-              clientHeight: 720,
-            },
-          };
-        }
-
-        return { data: "cached-preview" };
       },
     },
   };
@@ -315,7 +255,7 @@ test("reuses session-cached previews without attaching the debugger again", asyn
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.equal(attachCount, 1);
+  assert.equal(captureCount, 1);
   assert.equal(sessionData["tabscroll:preview-cache"].length, 1);
 
   const secondContext = loadBackground(chromeOverrides);
@@ -324,7 +264,7 @@ test("reuses session-cached previews without attaching the debugger again", asyn
   assert.equal(payload.tabs[1].preview, "data:image/jpeg;base64,cached-preview");
 
   await secondContext.captureAllPreviewsForSession(1);
-  assert.equal(attachCount, 1);
+  assert.equal(captureCount, 1);
 
   tabs[1].url = "https://cached.example/after-navigation";
   const thirdContext = loadBackground(chromeOverrides);
@@ -333,7 +273,7 @@ test("reuses session-cached previews without attaching the debugger again", asyn
   assert.equal(navigatedPayload.tabs[1].preview, "");
 
   await thirdContext.captureAllPreviewsForSession(1);
-  assert.equal(attachCount, 2);
+  assert.equal(captureCount, 2);
 });
 
 test("suggests the most recently accessed inactive tab", async () => {

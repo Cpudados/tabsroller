@@ -33,7 +33,7 @@ What TabScroll does not do:
 Storage and retention:
 
 - Tab metadata and screenshot previews are processed locally in the browser.
-- Downscaled screenshot previews may be kept in Chrome's extension session storage. Cached previews are reused for up to ten minutes, and session storage is cleared when the browser session or extension session ends.
+- Downscaled screenshot previews may be kept in Firefox's extension session storage. Cached previews are reused for up to ten minutes, and session storage is cleared when the browser session or extension session ends.
 - TabScroll does not intentionally save screenshots or browsing history to extension storage for later use.
 - The theme preference may be stored locally on your device until you change it or clear extension or site data.
 
@@ -43,11 +43,11 @@ Permissions used:
 - `activeTab`: used only after explicit user invocation so TabScroll can access the current page, inject the overlay, and capture the currently visible tab preview.
 - `scripting`: used to inject the TabScroll overlay into the tab where you explicitly opened it.
 - `storage`: used for session-only caching of downscaled previews so unchanged tabs can reuse an existing preview.
-- `debugger`: used while you explicitly use TabScroll to capture previews of other eligible open tabs without visibly switching to them. Chrome shows its native debugging banner while this capture is active.
+- `<all_urls>`: used while you explicitly use TabScroll so Firefox can capture previews of other eligible open tabs without visibly switching to them. TabScroll does not read page content or run automatically on those sites.
 
-Chrome Web Store limited use statement:
+Firefox Add-ons data-use statement:
 
-- TabScroll accesses browsing activity and tab preview data only to provide the user-facing tab switcher described in the Chrome Web Store listing and in the extension UI.
+- TabScroll accesses browsing activity and tab preview data only to provide the user-facing tab switcher described in the Firefox Add-ons listing and in the extension UI.
 - TabScroll does not use that data for advertising, profiling, analytics, or any unrelated purpose.
 - TabScroll does not transfer that data to third parties.
 
