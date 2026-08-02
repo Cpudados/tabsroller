@@ -17,7 +17,7 @@ Suggested detailed description:
 - TabScroll opens a full-screen overlay over the current page and shows tabs from the current browser window or all normal browser windows in a focused, visual switcher. Start typing to filter by title, domain, or URL; use the mouse wheel or arrow keys to move between results; press `R` to jump back; or press Enter to activate a selection. The selected tab can also be closed, pinned, or muted with `Delete`, `P`, or `M`.
 - A single three-slot carousel shows the previous, focused, and next tab without loading remote visual assets or transmitting tab data.
 - The extension reads open tabs in normal browser windows so it can search and show each tab's title, URL, favicon, window, order, active state, recent access time, pin, audio, mute, and discarded status inside the switcher. This is the core functionality of the product.
-- When you explicitly open TabScroll, it captures a preview of the active tab and refreshes missing inactive-tab previews in a small parallel batch. Downscaled previews are cached for the browser session and invalidated when a tab navigates.
+- When you explicitly open TabScroll, it captures a preview of the active tab and refreshes nearby missing inactive-tab previews on demand in small, session-scoped batches. Downscaled previews are cached for the browser session and invalidated when a tab navigates.
 - TabScroll processes this data locally in the browser only to render the tab switcher and activate the tab you choose. It does not send browsing data or screenshots to any remote service.
 
 Permissions justification:
@@ -31,7 +31,7 @@ Permissions justification:
 Ready-to-paste store explanation:
 
 - TabScroll reads tabs from normal browser windows to show and search a visual tab switcher, including each tab's title, URL, favicon, window, order, active state, recent access time, pin, audio, mute, and discarded status. The recent access time is used locally to offer a "Jump back" shortcut. This is the core function of the extension.
-- When the user explicitly opens TabScroll, the extension captures preview images so the user can recognize and switch to the right tab quickly. Missing inactive-tab previews are captured in a limited parallel batch, downscaled during capture, and cached only for the browser session.
+- When the user explicitly opens TabScroll, the extension captures preview images so the user can recognize and switch to the right tab quickly. Nearby missing inactive-tab previews are captured on demand in limited, session-scoped batches, downscaled during capture, and cached only for the browser session.
 - TabScroll uses this data only locally in the browser to render the switcher and activate the selected tab. It does not send browsing data, tab contents, or screenshots to any remote service, and it does not use this data for analytics, advertising, or tracking.
 
 Privacy disclosures:

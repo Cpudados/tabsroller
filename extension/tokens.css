@@ -32,6 +32,8 @@
   --dur-short: 180ms;
   --dur-medium: 280ms;
   --dur-long: 460ms;
+  --dur-carousel: 440ms;
+  --dur-carousel-exit: 340ms;
 
   --rule-hairline: 0.0625rem;
   --rule-accent: 0.125rem;

@@ -8,7 +8,9 @@ const {
   TAB_COLLECTION_KIND,
   classifyTab,
 } = globalThis.TabScrollTabClassifier;
-const TOGGLE_MESSAGE = "tabscroll:toggle-overlay";
+const CONTENT_SCRIPT_PROTOCOL = 2;
+const PING_MESSAGE = `tabscroll:v${CONTENT_SCRIPT_PROTOCOL}:ping`;
+const TOGGLE_MESSAGE = `tabscroll:v${CONTENT_SCRIPT_PROTOCOL}:toggle-overlay`;
 const ACTIVATE_MESSAGE = "tabscroll:activate-tab";
 const CLOSE_TAB_MESSAGE = "tabscroll:close-tab";
 const TOGGLE_PIN_MESSAGE = "tabscroll:toggle-pin";
@@ -25,8 +27,8 @@ const BACKGROUND_PREVIEW_QUALITY = 60;
 const BACKGROUND_PREVIEW_MAX_WIDTH = 800;
 const BACKGROUND_PREVIEW_MAX_HEIGHT = 500;
 const MAX_BACKGROUND_PREVIEWS = 24;
-const BACKGROUND_PREVIEW_CONCURRENCY = 4;
-const PREVIEW_UPDATE_BATCH_SIZE = 4;
+const BACKGROUND_PREVIEW_CONCURRENCY = 2;
+const PREVIEW_UPDATE_BATCH_SIZE = 2;
 const PREVIEW_CACHE_STORAGE_KEY = "tabscroll:preview-cache";
 const PREVIEW_CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_PREVIEW_CACHE_ENTRIES = 32;
@@ -42,6 +44,7 @@ const activePreviewCaptures = new Map();
 const previewCache = new Map();
 let previewCacheLoadPromise = null;
 let previewCachePersistPromise = Promise.resolve();
+let sessionSequence = 0;
 
 chrome.tabs.onUpdated?.addListener?.((tabId, changeInfo) => {
   if (changeInfo.url || changeInfo.status === "loading") {
@@ -111,7 +114,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === GET_SESSION_MESSAGE) {
-    void getSessionForSender(sender, message.tabId)
+    void getSessionForSender(sender, message.tabId, message.sessionId)
       .then((payload) => sendResponse({ ok: true, payload }))
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
 
@@ -119,7 +122,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === REQUEST_ALL_PREVIEWS_MESSAGE) {
-    void requestAllPreviewsForSession(sender, message.tabId)
+    void requestAllPreviewsForSession(
+      sender,
+      message.tabId,
+      message.sessionId,
+      message.requestId,
+      message.tabIds
+    )
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
 
@@ -127,7 +136,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === CANCEL_PREVIEW_CAPTURE_MESSAGE) {
-    cancelPreviewCapture(message.tabId);
+    cancelPreviewCapture(message.tabId, message.sessionId);
     sendResponse({ ok: true });
     return;
   }
@@ -147,6 +156,7 @@ async function openForActiveTab() {
 
 async function openTabScroll(tabId) {
   let hostTab;
+  let sessionId = "";
 
   try {
     hostTab = await chrome.tabs.get(tabId);
@@ -155,31 +165,38 @@ async function openTabScroll(tabId) {
       return;
     }
 
-    await ensureContentScript(tabId);
-
     // Start gathering the session before opening, but do not make the user wait
     // for a large tab query or screenshot before showing the loading view.
-    prepareSession(hostTab);
+    sessionId = createSessionId(tabId);
+    prepareSession(hostTab, sessionId);
+    await ensureContentScript(tabId);
 
     await safeSendMessage(tabId, {
       type: TOGGLE_MESSAGE,
       tabId,
+      sessionId,
+      protocol: CONTENT_SCRIPT_PROTOCOL,
     });
   } catch (error) {
     console.info("TabScroll is using its standalone view for this page.", error);
 
     try {
       hostTab = hostTab || (await chrome.tabs.get(tabId));
-      prepareSession(hostTab);
-      await openStandaloneOverlay(hostTab);
+      sessionId = sessionId || createSessionId(tabId);
+
+      if (!pendingSessions.has(sessionId)) {
+        prepareSession(hostTab, sessionId);
+      }
+
+      await openStandaloneOverlay(hostTab, sessionId);
     } catch (fallbackError) {
-      pendingSessions.delete(tabId);
+      pendingSessions.delete(sessionId);
       console.warn("TabScroll could not open.", fallbackError);
     }
   }
 }
 
-async function getSessionForSender(sender, explicitTabId) {
+async function getSessionForSender(sender, explicitTabId, explicitSessionId) {
   const tabId =
     typeof explicitTabId === "number"
       ? explicitTabId
@@ -189,11 +206,12 @@ async function getSessionForSender(sender, explicitTabId) {
     throw new Error("TabScroll session is only available inside a browser tab");
   }
 
-  const cached = pendingSessions.get(tabId);
+  const sessionId = normalizeSessionId(explicitSessionId);
+  const cached = sessionId ? pendingSessions.get(sessionId) : null;
 
-  if (cached) {
-    pendingSessions.delete(tabId);
-    return await cached;
+  if (cached?.tabId === tabId) {
+    pendingSessions.delete(sessionId);
+    return await cached.payload;
   }
 
   const tab = await chrome.tabs.get(tabId);
@@ -206,7 +224,9 @@ async function buildOverlayPayload(hostTab) {
     chrome.tabs.query({ windowType: "normal" }),
     hostClassification.kind === TAB_COLLECTION_KIND
       ? Promise.resolve("")
-      : captureVisiblePreview(hostTab.windowId),
+      : hostTab.active
+      ? captureVisiblePreview(hostTab.windowId)
+      : Promise.resolve(""),
     ensurePreviewCacheLoaded(),
   ]);
   const resolvedActivePreview = activePreview || getCachedPreview(hostTab);
@@ -273,29 +293,44 @@ async function buildOverlayPayload(hostTab) {
   };
 }
 
-function prepareSession(hostTab) {
+function prepareSession(hostTab, sessionId) {
   if (!hostTab || typeof hostTab.id !== "number") {
     return;
   }
 
+  const normalizedSessionId = normalizeSessionId(sessionId);
+
+  if (!normalizedSessionId) {
+    return;
+  }
+
   const session = buildOverlayPayload(hostTab).catch((error) => {
-    if (pendingSessions.get(hostTab.id) === session) {
-      pendingSessions.delete(hostTab.id);
+    if (pendingSessions.get(normalizedSessionId)?.payload === session) {
+      pendingSessions.delete(normalizedSessionId);
     }
 
     throw error;
   });
 
-  pendingSessions.set(hostTab.id, session);
+  pendingSessions.set(normalizedSessionId, {
+    tabId: hostTab.id,
+    payload: session,
+  });
+
+  while (pendingSessions.size > 12) {
+    pendingSessions.delete(pendingSessions.keys().next().value);
+  }
 }
 
-async function openStandaloneOverlay(hostTab) {
+async function openStandaloneOverlay(hostTab, sessionId) {
   if (typeof hostTab?.id !== "number" || typeof hostTab.windowId !== "number") {
     throw new Error("Missing host tab for standalone view");
   }
 
   const url = chrome.runtime.getURL(
-    `overlay.html#tab=${encodeURIComponent(String(hostTab.id))}&standalone=1`
+    `overlay.html#tab=${encodeURIComponent(String(hostTab.id))}&session=${encodeURIComponent(
+      normalizeSessionId(sessionId)
+    )}&standalone=1`
   );
 
   await chrome.tabs.create({
@@ -318,13 +353,24 @@ async function closeStandaloneTab(sender) {
 
 async function ensureContentScript(tabId) {
   try {
-    await safeSendMessage(tabId, { type: "tabscroll:ping" });
-    return;
+    const response = await safeSendMessage(tabId, { type: PING_MESSAGE });
+
+    if (response?.ok && response.protocol === CONTENT_SCRIPT_PROTOCOL) {
+      return;
+    }
   } catch (_error) {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["content-script.js"],
-    });
+    // Inject the current protocol below.
+  }
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content-script.js"],
+  });
+
+  const response = await safeSendMessage(tabId, { type: PING_MESSAGE });
+
+  if (!response?.ok || response.protocol !== CONTENT_SCRIPT_PROTOCOL) {
+    throw new Error("TabScroll could not initialize the current page overlay");
   }
 }
 
@@ -362,6 +408,8 @@ async function toggleMutedTab(tabId) {
 }
 
 async function captureVisiblePreview(windowId) {
+  let lastError = null;
+
   for (let attempt = 0; attempt < VISIBLE_PREVIEW_ATTEMPTS; attempt += 1) {
     if (attempt > 0) {
       await wait(VISIBLE_PREVIEW_RETRY_DELAY_MS);
@@ -376,10 +424,16 @@ async function captureVisiblePreview(windowId) {
       if (preview) {
         return preview;
       }
-    } catch (_error) {
+    } catch (error) {
+      lastError = error;
       continue;
     }
   }
+
+  console.info("TabScroll active preview was unavailable.", {
+    windowId,
+    message: lastError ? String(lastError?.message || lastError) : "No image data returned",
+  });
 
   return "";
 }
@@ -388,7 +442,13 @@ async function safeSendMessage(tabId, message) {
   return chrome.tabs.sendMessage(tabId, message);
 }
 
-async function requestAllPreviewsForSession(sender, explicitTabId) {
+async function requestAllPreviewsForSession(
+  sender,
+  explicitTabId,
+  explicitSessionId,
+  explicitRequestId,
+  explicitTabIds
+) {
   const sessionTabId =
     typeof explicitTabId === "number"
       ? explicitTabId
@@ -398,41 +458,72 @@ async function requestAllPreviewsForSession(sender, explicitTabId) {
     throw new Error("Missing session tab id");
   }
 
-  if (activePreviewCaptures.has(sessionTabId)) {
-    return;
+  const sessionId = normalizeSessionId(explicitSessionId) || `legacy:${sessionTabId}`;
+  const requestId = normalizeSessionId(explicitRequestId);
+  const captureKey = sessionId;
+  const existingCapture = activePreviewCaptures.get(captureKey);
+
+  if (existingCapture && !existingCapture.cancelled) {
+    return existingCapture.task;
   }
 
   const captureState = {
     cancelled: false,
+    diagnostics: [],
+    failedTabIds: [],
+    sessionId,
+    requestId,
   };
-  const task = captureAllPreviewsForSession(sessionTabId, captureState)
+  const task = captureAllPreviewsForSession(sessionTabId, captureState, {
+    tabIds: normalizeRequestedTabIds(explicitTabIds),
+  })
     .catch((error) => {
       console.warn("TabScroll preview capture failed.", error);
+      throw error;
     })
     .finally(() => {
-      if (activePreviewCaptures.get(sessionTabId) === captureState) {
-        activePreviewCaptures.delete(sessionTabId);
+      if (activePreviewCaptures.get(captureKey) === captureState) {
+        activePreviewCaptures.delete(captureKey);
       }
     });
 
   captureState.task = task;
-  activePreviewCaptures.set(sessionTabId, captureState);
+  activePreviewCaptures.set(captureKey, captureState);
+  return task;
 }
 
-function cancelPreviewCapture(sessionTabId) {
+function cancelPreviewCapture(sessionTabId, explicitSessionId) {
   if (typeof sessionTabId !== "number") {
     return;
   }
 
-  const captureState = activePreviewCaptures.get(sessionTabId);
+  const sessionId = normalizeSessionId(explicitSessionId);
+  const captureState = sessionId
+    ? activePreviewCaptures.get(sessionId)
+    : Array.from(activePreviewCaptures.values()).find(
+        (capture) => capture.sessionTabId === sessionTabId
+      );
 
   if (captureState) {
     captureState.cancelled = true;
   }
 }
 
-async function captureAllPreviewsForSession(sessionTabId, captureState = { cancelled: false }) {
+async function captureAllPreviewsForSession(
+  sessionTabId,
+  captureState = { cancelled: false },
+  options = {}
+) {
   let capturedAnyPreview = false;
+  captureState.sessionTabId = sessionTabId;
+  captureState.diagnostics = Array.isArray(captureState.diagnostics)
+    ? captureState.diagnostics
+    : [];
+  captureState.failedTabIds = Array.isArray(captureState.failedTabIds)
+    ? captureState.failedTabIds
+    : [];
+  captureState.sessionId = normalizeSessionId(captureState.sessionId);
+  captureState.requestId = normalizeSessionId(captureState.requestId);
 
   try {
     await ensurePreviewCacheLoaded();
@@ -451,13 +542,31 @@ async function captureAllPreviewsForSession(sessionTabId, captureState = { cance
       );
     const { sortedTabs, windowOrder } = orderTabsByWindow(eligibleTabs, hostTab.windowId);
     const activeIndexByWindow = getActiveIndexByWindow(sortedTabs);
+    const requestedTabIds = new Set(normalizeRequestedTabIds(options.tabIds));
+    const pendingUpdates = [];
     const previewTabs = sortedTabs
       .filter((tab) => {
-        if (tab.id === hostTab.id || tab.discarded || getCachedPreview(tab)) {
+        const cachedPreview = getCachedPreview(tab);
+
+        if (cachedPreview) {
+          if (requestedTabIds.has(tab.id)) {
+            pendingUpdates.push({
+              tabId: tab.id,
+              preview: cachedPreview,
+            });
+          }
+
           return false;
         }
 
-        return isPreviewCandidateUrl(tab.url || tab.pendingUrl || "");
+        if (tab.id === hostTab.id || tab.discarded) {
+          return false;
+        }
+
+        return (
+          isPreviewCandidateUrl(tab.url || tab.pendingUrl || "") &&
+          (!requestedTabIds.size || requestedTabIds.has(tab.id))
+        );
       })
       .sort((left, right) => {
         const leftWindowRank = left.windowId === hostTab.windowId ? 0 : 1;
@@ -495,8 +604,7 @@ async function captureAllPreviewsForSession(sessionTabId, captureState = { cance
 
         return left.index - right.index;
       })
-      .slice(0, MAX_BACKGROUND_PREVIEWS);
-    const pendingUpdates = [];
+      .slice(0, requestedTabIds.size ? requestedTabIds.size : MAX_BACKGROUND_PREVIEWS);
     let nextPreviewIndex = 0;
 
     async function flushPreviewUpdates() {
@@ -505,7 +613,12 @@ async function captureAllPreviewsForSession(sessionTabId, captureState = { cance
       }
 
       const previews = pendingUpdates.splice(0, pendingUpdates.length);
-      await notifyPreviewsUpdated(sessionTabId, previews);
+      await notifyPreviewsUpdated(
+        sessionTabId,
+        captureState.sessionId,
+        captureState.requestId,
+        previews
+      );
     }
 
     async function captureWorker() {
@@ -521,6 +634,10 @@ async function captureAllPreviewsForSession(sessionTabId, captureState = { cance
         const preview = await captureTabPreview(tab.id, captureState);
 
         if (!preview || captureState.cancelled) {
+          if (!captureState.cancelled && !captureState.failedTabIds.includes(tab.id)) {
+            captureState.failedTabIds.push(tab.id);
+          }
+
           continue;
         }
 
@@ -547,7 +664,19 @@ async function captureAllPreviewsForSession(sessionTabId, captureState = { cance
       schedulePreviewCachePersist();
     }
 
-    await notifyPreviewCaptureComplete(sessionTabId);
+    if (captureState.diagnostics.length) {
+      console.info("TabScroll could not capture some previews.", {
+        failedTabIds: captureState.failedTabIds,
+        diagnostics: captureState.diagnostics,
+      });
+    }
+
+    await notifyPreviewCaptureComplete(
+      sessionTabId,
+      captureState.sessionId,
+      captureState.requestId,
+      captureState.failedTabIds
+    );
   }
 }
 
@@ -558,6 +687,27 @@ function isPreviewCandidateUrl(value) {
   } catch (_error) {
     return false;
   }
+}
+
+function createSessionId(tabId) {
+  sessionSequence += 1;
+  return `${tabId}:${Date.now().toString(36)}:${sessionSequence.toString(36)}`;
+}
+
+function normalizeSessionId(value) {
+  return typeof value === "string" && /^[a-z0-9:_-]{1,160}$/i.test(value)
+    ? value
+    : "";
+}
+
+function normalizeRequestedTabIds(values) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(values.filter((tabId) => Number.isInteger(tabId) && tabId >= 0))
+  ).slice(0, 8);
 }
 
 function isTabScrollPage(value) {
@@ -794,7 +944,7 @@ async function persistPreviewCache() {
   }
 }
 
-async function notifyPreviewsUpdated(sessionTabId, previews) {
+async function notifyPreviewsUpdated(sessionTabId, sessionId, requestId, previews) {
   if (
     typeof sessionTabId !== "number" ||
     !Array.isArray(previews) ||
@@ -804,8 +954,11 @@ async function notifyPreviewsUpdated(sessionTabId, previews) {
   }
 
   try {
-    await safeSendMessage(sessionTabId, {
+    await chrome.runtime.sendMessage({
       type: PREVIEWS_UPDATED_MESSAGE,
+      tabId: sessionTabId,
+      sessionId: normalizeSessionId(sessionId),
+      requestId: normalizeSessionId(requestId),
       previews,
     });
   } catch (_error) {
@@ -813,14 +966,23 @@ async function notifyPreviewsUpdated(sessionTabId, previews) {
   }
 }
 
-async function notifyPreviewCaptureComplete(sessionTabId) {
+async function notifyPreviewCaptureComplete(
+  sessionTabId,
+  sessionId,
+  requestId,
+  failedTabIds = []
+) {
   if (typeof sessionTabId !== "number") {
     return;
   }
 
   try {
-    await safeSendMessage(sessionTabId, {
+    await chrome.runtime.sendMessage({
       type: PREVIEW_CAPTURE_COMPLETE_MESSAGE,
+      tabId: sessionTabId,
+      sessionId: normalizeSessionId(sessionId),
+      requestId: normalizeSessionId(requestId),
+      failedTabIds: normalizeRequestedTabIds(failedTabIds),
     });
   } catch (_error) {
     // The overlay may have closed before capture completed.
@@ -846,12 +1008,25 @@ async function captureTabPreview(tabId, captureState = { cancelled: false }) {
       if (preview) {
         return await downscaleCapturedPreview(preview);
       }
-    } catch (_error) {
+    } catch (error) {
+      recordPreviewDiagnostic(captureState, tabId, "capture", error);
       continue;
     }
   }
 
   return "";
+}
+
+function recordPreviewDiagnostic(captureState, tabId, stage, error) {
+  if (!Array.isArray(captureState?.diagnostics) || captureState.diagnostics.length >= 12) {
+    return;
+  }
+
+  captureState.diagnostics.push({
+    tabId,
+    stage,
+    message: truncateText(String(error?.message || error || "Unknown capture error"), 240),
+  });
 }
 
 async function downscaleCapturedPreview(preview) {

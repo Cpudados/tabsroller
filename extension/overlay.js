@@ -4,9 +4,14 @@
   const THEME_NIGHT = "night";
   const THEME_WHITE = "white";
   const WHEEL_THRESHOLD = 80;
-  const CAROUSEL_MOTION_MS = 280;
-  const WHEEL_LOCK_MS = CAROUSEL_MOTION_MS;
+  const CAROUSEL_MOTION_MS = 440;
+  const CAROUSEL_EXIT_MS = 340;
+  const WHEEL_LOCK_MS = 160;
+  const DRAG_START_THRESHOLD = 6;
+  const DRAG_COMMIT_DISTANCE = 72;
+  const DRAG_COMMIT_VELOCITY = 0.45;
   const MAX_VISIBLE_DOTS = 15;
+  const MAX_PREVIEW_REQUEST_TABS = 5;
   const app = document.getElementById("app");
   const storedTheme = readStoredTheme();
   const systemThemeQuery =
@@ -31,11 +36,22 @@
     carouselStep: 0,
     carouselDirection: 1,
     carouselMotionUntil: 0,
+    carouselSnapshot: null,
+    carouselDrag: null,
+    carouselClickLockedUntil: 0,
     deferredRenderTimer: 0,
     loading: true,
+    loadError: "",
     hostTabId: null,
+    sessionId: "",
     standalone: false,
     previewCaptureRequested: false,
+    previewRefreshPending: false,
+    previewRequestSequence: 0,
+    activePreviewRequestId: "",
+    activePreviewTabIds: [],
+    previewAttemptedTabIds: new Set(),
+    previewPendingTabIds: new Set(),
     wheelDelta: 0,
     wheelResetTimer: 0,
     wheelLockedUntil: 0,
@@ -83,9 +99,14 @@
 
   window.addEventListener("wheel", handleWheel, { passive: false });
   window.addEventListener("keydown", handleKeyDown, true);
+  window.addEventListener("pointermove", handlePointerMove, { passive: false });
+  window.addEventListener("pointerup", handlePointerUp);
+  window.addEventListener("pointercancel", handlePointerCancel);
   window.addEventListener("message", handleParentMessage);
   window.addEventListener("pagehide", cancelPreviewCapture);
+  chrome.runtime.onMessage?.addListener?.(handleRuntimeMessage);
   document.addEventListener("click", handleClick);
+  document.addEventListener("pointerdown", handlePointerDown);
   document.addEventListener("input", handleInput);
   document.addEventListener("focusin", handleFocusIn);
   document.addEventListener("compositionstart", handleCompositionStart);
@@ -97,7 +118,7 @@
   void requestSession();
 
   function handleWheel(event) {
-    if (!state.visibleTabs.length) {
+    if (!state.visibleTabs.length || state.carouselDrag) {
       return;
     }
 
@@ -126,6 +147,133 @@
     state.wheelDelta = 0;
     state.wheelLockedUntil = now + WHEEL_LOCK_MS;
     moveSelection(direction);
+  }
+
+  function handlePointerDown(event) {
+    if (
+      state.visibleTabs.length < 2 ||
+      event.button !== 0 ||
+      !(event.target instanceof Element)
+    ) {
+      return;
+    }
+
+    const card = event.target.closest("[data-role='card']");
+
+    if (!card) {
+      return;
+    }
+
+    state.carouselDrag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastTime: Date.now(),
+      deltaX: 0,
+      velocityX: 0,
+      moved: false,
+      captureTarget: card,
+    };
+    card.setPointerCapture?.(event.pointerId);
+  }
+
+  function handlePointerMove(event) {
+    const drag = state.carouselDrag;
+
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const now = Date.now();
+    const elapsed = Math.max(1, now - drag.lastTime);
+    const movement = event.clientX - drag.lastX;
+    const rawDelta = event.clientX - drag.startX;
+    const crossAxisDelta = event.clientY - drag.startY;
+    const dragLimit = Math.max(DRAG_COMMIT_DISTANCE, window.innerWidth * 0.32);
+    const resistedDelta =
+      Math.sign(rawDelta) *
+      dragLimit *
+      (1 - Math.exp(-Math.abs(rawDelta) / dragLimit));
+
+    drag.deltaX = resistedDelta;
+    drag.velocityX = movement / elapsed;
+    drag.lastX = event.clientX;
+    drag.lastTime = now;
+
+    if (!drag.moved) {
+      if (
+        Math.abs(rawDelta) < DRAG_START_THRESHOLD ||
+        Math.abs(rawDelta) <= Math.abs(crossAxisDelta)
+      ) {
+        return;
+      }
+    }
+
+    drag.moved = true;
+    event.preventDefault();
+
+    const carousel = getCarouselElement();
+
+    if (!carousel) {
+      return;
+    }
+
+    carousel.classList.add("is-dragging");
+    carousel.style.setProperty("--carousel-drag-x", `${resistedDelta}px`);
+  }
+
+  function handlePointerUp(event) {
+    finishPointerDrag(event, false);
+  }
+
+  function handlePointerCancel(event) {
+    finishPointerDrag(event, true);
+  }
+
+  function finishPointerDrag(event, cancelled) {
+    const drag = state.carouselDrag;
+
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    drag.captureTarget?.releasePointerCapture?.(event.pointerId);
+    state.carouselDrag = null;
+
+    if (!drag.moved) {
+      return;
+    }
+
+    state.carouselClickLockedUntil = Date.now() + CAROUSEL_EXIT_MS;
+    const shouldMove =
+      !cancelled &&
+      (Math.abs(drag.deltaX) >= DRAG_COMMIT_DISTANCE ||
+        Math.abs(drag.velocityX) >= DRAG_COMMIT_VELOCITY);
+
+    if (shouldMove) {
+      const directionSignal =
+        Math.abs(drag.deltaX) >= DRAG_COMMIT_DISTANCE
+          ? drag.deltaX
+          : drag.velocityX;
+      moveSelection(directionSignal < 0 ? 1 : -1);
+      return;
+    }
+
+    const carousel = getCarouselElement();
+
+    if (!carousel) {
+      return;
+    }
+
+    carousel.classList.remove("is-dragging");
+    carousel.style.removeProperty("--carousel-drag-x");
+  }
+
+  function getCarouselElement() {
+    return typeof document.querySelector === "function"
+      ? document.querySelector(".ts-cards")
+      : null;
   }
 
   function handleKeyDown(event) {
@@ -314,6 +462,12 @@
 
     const card = target.closest("[data-role='card']");
     if (card) {
+      if (Date.now() < state.carouselClickLockedUntil) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       const index = Number(card.getAttribute("data-index"));
 
       if (index === state.activeIndex) {
@@ -424,17 +578,35 @@
       return;
     }
 
+    const explicitStep = Number.isInteger(options.step)
+      ? Math.max(-1, Math.min(options.step, 1))
+      : 0;
+    const inferredStep = explicitStep || getShortestCarouselStep(state.activeIndex, nextIndex);
+
     state.carouselStep =
-      state.visibleTabs.length > 1 && Number.isInteger(options.step)
-        ? Math.max(-2, Math.min(options.step, 2))
+      state.visibleTabs.length > 1
+        ? inferredStep
         : 0;
     if (state.carouselStep) {
+      state.carouselSnapshot = captureCarouselSnapshot();
       state.carouselDirection = state.carouselStep < 0 ? -1 : 1;
       state.carouselMotionUntil = Date.now() + CAROUSEL_MOTION_MS;
     }
     state.activeIndex = nextIndex;
     state.selectedTabId = state.visibleTabs[nextIndex]?.id ?? null;
     render();
+  }
+
+  function getShortestCarouselStep(currentIndex, nextIndex) {
+    const total = state.visibleTabs.length;
+
+    if (total < 2 || currentIndex === nextIndex) {
+      return 0;
+    }
+
+    const forwardDistance = (nextIndex - currentIndex + total) % total;
+    const backwardDistance = (currentIndex - nextIndex + total) % total;
+    return forwardDistance <= backwardDistance ? 1 : -1;
   }
 
   async function activateSelection() {
@@ -668,9 +840,12 @@
     }
 
     state.previewCaptureRequested = false;
+    state.previewRefreshPending = false;
+    state.previewPendingTabIds.clear();
     void chrome.runtime.sendMessage({
       type: "tabscroll:cancel-preview-capture",
       tabId: state.hostTabId,
+      sessionId: state.sessionId,
     });
   }
 
@@ -679,14 +854,30 @@
       return;
     }
 
-    const message = event.data;
+    handlePreviewMessage(event.data);
+  }
 
-    if (message?.type === "tabscroll:preview-capture-complete") {
-      state.previewCaptureRequested = false;
+  function handleRuntimeMessage(message) {
+    handlePreviewMessage(message);
+    return undefined;
+  }
+
+  function handlePreviewMessage(message) {
+    if (
+      !message ||
+      (state.sessionId && message.sessionId && message.sessionId !== state.sessionId)
+    ) {
       return;
     }
 
-    if (message?.type !== "tabscroll:previews-updated") {
+    if (message.type === "tabscroll:preview-capture-complete") {
+      // The request response is intentionally held open until capture finishes.
+      // Finalize from that response so a follow-up batch cannot race the
+      // background cleanup for the current session.
+      return;
+    }
+
+    if (message.type !== "tabscroll:previews-updated") {
       return;
     }
 
@@ -710,6 +901,7 @@
       }
 
       state.sourceTabs[tabIndex].preview = preview;
+      state.previewPendingTabIds.delete(tabId);
       updated = true;
     }
 
@@ -734,6 +926,180 @@
     }, remainingMotion + 16);
   }
 
+  function captureCarouselSnapshot() {
+    if (
+      typeof document.querySelectorAll !== "function" ||
+      typeof window.getComputedStyle !== "function" ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
+    ) {
+      return null;
+    }
+
+    const cards = Array.from(
+      document.querySelectorAll(".ts-card-wrap:not([data-ghost])")
+    );
+
+    if (!cards.length) {
+      return null;
+    }
+
+    const snapshot = new Map();
+
+    for (const card of cards) {
+      const index = Number(card.getAttribute("data-index"));
+
+      if (!Number.isInteger(index)) {
+        continue;
+      }
+
+      const computed = window.getComputedStyle(card);
+      snapshot.set(index, {
+        clone: card.cloneNode(true),
+        opacity: computed.opacity,
+        position: card.getAttribute("data-position") || "center",
+        transform: computed.transform === "none" ? "translate(-50%, -50%)" : computed.transform,
+      });
+    }
+
+    return snapshot.size ? snapshot : null;
+  }
+
+  function playCarouselTransition(snapshot, step) {
+    if (!snapshot || typeof document.querySelectorAll !== "function") {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      const carousel = getCarouselElement();
+
+      if (!carousel) {
+        return;
+      }
+
+      const cards = Array.from(
+        document.querySelectorAll(".ts-card-wrap:not([data-ghost])")
+      );
+
+      if (!cards.some((card) => typeof card.animate === "function")) {
+        return;
+      }
+
+      const easing =
+        window
+          .getComputedStyle(document.documentElement)
+          .getPropertyValue("--ease-out")
+          .trim() || "cubic-bezier(0.16, 1, 0.3, 1)";
+      const renderedIndexes = new Set();
+
+      for (const card of cards) {
+        const index = Number(card.getAttribute("data-index"));
+        const previous = snapshot.get(index);
+        renderedIndexes.add(index);
+
+        if (!previous || typeof card.animate !== "function") {
+          continue;
+        }
+
+        card.getAnimations?.().forEach((animation) => animation.cancel());
+        card.removeAttribute("data-from-position");
+
+        const target = window.getComputedStyle(card);
+        const targetTransform =
+          target.transform === "none" ? "translate(-50%, -50%)" : target.transform;
+        const targetOpacity = Number(target.opacity);
+        const startOpacity = Number(previous.opacity);
+        const midOpacity = Math.min(
+          1,
+          startOpacity + (targetOpacity - startOpacity) * 0.82
+        );
+        const lift =
+          card.getAttribute("data-position") === "center"
+            ? "translateY(calc(0rem - var(--space-xs)))"
+            : "translateY(calc(0rem - var(--space-2xs)))";
+        const animation = card.animate(
+          [
+            {
+              opacity: previous.opacity,
+              transform: previous.transform,
+            },
+            {
+              offset: 0.58,
+              opacity: String(midOpacity),
+              transform: `${targetTransform} ${lift}`,
+            },
+            {
+              opacity: target.opacity,
+              transform: targetTransform,
+            },
+          ],
+          {
+            duration: CAROUSEL_MOTION_MS,
+            easing,
+            fill: "both",
+          }
+        );
+
+        animation.finished.then(
+          () => animation.cancel(),
+          () => {}
+        );
+      }
+
+      for (const [index, previous] of snapshot) {
+        if (renderedIndexes.has(index)) {
+          continue;
+        }
+
+        const ghost = previous.clone;
+        ghost.getAnimations?.().forEach((animation) => animation.cancel());
+        ghost.removeAttribute("data-role");
+        ghost.removeAttribute("data-from-position");
+        ghost.removeAttribute("aria-current");
+        ghost.setAttribute("aria-hidden", "true");
+        ghost.setAttribute("tabindex", "-1");
+        ghost.setAttribute("data-ghost", "exit");
+        ghost.setAttribute("data-position", step < 0 ? "off-right" : "off-left");
+        carousel.append(ghost);
+
+        if (typeof ghost.animate !== "function") {
+          ghost.remove();
+          continue;
+        }
+
+        const target = window.getComputedStyle(ghost);
+        const targetTransform =
+          target.transform === "none" ? previous.transform : target.transform;
+        const animation = ghost.animate(
+          [
+            {
+              opacity: previous.opacity,
+              transform: previous.transform,
+            },
+            {
+              offset: 0.52,
+              opacity: String(Math.max(0.18, Number(previous.opacity) * 0.62)),
+              transform: `${targetTransform} translateY(calc(0rem - var(--space-2xs)))`,
+            },
+            {
+              opacity: "0",
+              transform: targetTransform,
+            },
+          ],
+          {
+            duration: CAROUSEL_EXIT_MS,
+            easing,
+            fill: "both",
+          }
+        );
+
+        animation.finished.then(
+          () => ghost.remove(),
+          () => ghost.remove()
+        );
+      }
+    });
+  }
+
   function render() {
     if (state.searchComposing) {
       return;
@@ -748,6 +1114,24 @@
         '      <div class="ts-loading-spinner" aria-hidden="true"></div>',
         '      <h2 class="ts-loading-title">Loading tabs</h2>',
         '      <p class="ts-loading-copy">TabScroll is gathering your current window.</p>',
+        "    </div>",
+        "  </div>",
+        renderLiveStatus(),
+        "</div>",
+      ].join("");
+      restoreSearchFocus();
+      return;
+    }
+
+    if (state.loadError) {
+      app.innerHTML = [
+        '<div class="ts-shell" data-role="backdrop">',
+        renderHeader(),
+        '  <div class="ts-stage">',
+        '    <div class="ts-empty">',
+        '      <h2>Could not load tabs</h2>',
+        `      <p>${escapeHtml(state.loadError)}</p>`,
+        '      <button type="button" data-action="close">Close</button>',
         "    </div>",
         "  </div>",
         renderLiveStatus(),
@@ -804,12 +1188,16 @@
     }
 
     const visibleCards = getVisibleCards();
+    const carouselStep = state.carouselStep;
+    const carouselMotion =
+      carouselStep < 0 ? "backward" : carouselStep > 0 ? "forward" : "idle";
+    const carouselSnapshot = state.carouselSnapshot;
 
     app.innerHTML = [
       '<div class="ts-shell" data-role="backdrop">',
       renderHeader(),
       '  <div class="ts-stage">',
-      '    <div class="ts-cards">',
+      `    <div class="ts-cards" data-motion="${carouselMotion}">`,
       visibleCards
         .map((item) => renderCard(item.tab, item.index, item.position, item.offset))
         .join(""),
@@ -823,7 +1211,10 @@
       "</div>",
     ].join("");
     state.carouselStep = 0;
+    state.carouselSnapshot = null;
     restoreSearchFocus();
+    playCarouselTransition(carouselSnapshot, carouselStep);
+    void startPreviewCapture();
   }
 
   function renderHeader() {
@@ -916,6 +1307,7 @@
       ? "Saved-tab collection"
       : escapeHtml(formatUrl(tab.url || ""));
     const preview = sanitizeAssetUrl(tab.preview);
+    const previewFallback = getPreviewFallback(tab);
     const favicon = sanitizeAssetUrl(tab.favicon);
     const cardIcon = isCollection ? renderCollectionIcon() : renderFavicon(favicon);
     const selected = index === state.activeIndex;
@@ -946,10 +1338,13 @@
         : preview
         ? `      <img src="${preview}" alt="Preview of ${title}" data-role="preview" data-tab-id="${tab.id}">`
         : [
-            '      <div class="ts-preview-fallback">',
+            `      <div class="ts-preview-fallback" data-state="${previewFallback.state}">`,
             '        <div class="ts-preview-fallback-inner">',
             `          <div class="ts-favicon-badge">${renderFavicon(favicon)}</div>`,
-            "          <span>No preview available</span>",
+            previewFallback.state === "loading"
+              ? '          <span class="ts-preview-spinner" aria-hidden="true"></span>'
+              : "",
+            `          <span>${previewFallback.label}</span>`,
             "        </div>",
             "      </div>",
           ].join(""),
@@ -976,6 +1371,26 @@
       "  </div>",
       "</button>",
     ].join("");
+  }
+
+  function getPreviewFallback(tab) {
+    if (
+      tab.discarded ||
+      tab.kind === "tab-collection" ||
+      !isPreviewCandidateUrl(tab.url || "")
+    ) {
+      return { state: "unavailable", label: "No preview available" };
+    }
+
+    if (state.previewPendingTabIds.has(tab.id)) {
+      return { state: "loading", label: "Loading preview" };
+    }
+
+    if (state.previewAttemptedTabIds.has(tab.id)) {
+      return { state: "unavailable", label: "Preview unavailable" };
+    }
+
+    return { state: "loading", label: "Loading preview" };
   }
 
   function renderCollectionPreview(collectionName) {
@@ -1566,12 +1981,14 @@
       hostTabIdValue && /^\d+$/.test(hostTabIdValue) ? Number(hostTabIdValue) : undefined;
 
     state.hostTabId = typeof hostTabId === "number" ? hostTabId : null;
+    state.sessionId = normalizeSessionId(hashParams.get("session"));
     state.standalone = hashParams.get("standalone") === "1";
 
     try {
       const response = await chrome.runtime.sendMessage({
         type: "tabscroll:get-session",
         tabId: hostTabId,
+        sessionId: state.sessionId,
       });
 
       if (!response?.ok) {
@@ -1592,6 +2009,14 @@
       state.recentTabId =
         typeof response.payload?.recentTabId === "number" ? response.payload.recentTabId : null;
       state.previewCaptureRequested = false;
+      state.previewRefreshPending = false;
+      state.previewAttemptedTabIds.clear();
+      state.previewPendingTabIds.clear();
+      state.sourceTabs.forEach((tab) => {
+        if (tab.active && !tab.preview) {
+          state.previewAttemptedTabIds.add(tab.id);
+        }
+      });
       const payloadActiveIndex =
         typeof response.payload?.activeIndex === "number" ? response.payload.activeIndex : -1;
       const payloadSelectedTabId = payloadTabs[payloadActiveIndex]?.id;
@@ -1603,14 +2028,14 @@
       state.selectedTabId = typeof activeTabId === "number" ? activeTabId : null;
       refreshVisibleTabs({ preferredTabId: state.selectedTabId });
       state.loading = false;
+      state.loadError = "";
 
       render();
       focusOverlay();
 
-      if (!state.standalone && hasAdditionalPreviewCandidates()) {
-        void startPreviewCapture();
-      }
-    } catch (_error) {
+      void startPreviewCapture();
+    } catch (error) {
+      console.warn("TabScroll could not load the tab session.", error);
       state.sourceTabs = [];
       state.visibleTabs = [];
       state.activeIndex = 0;
@@ -1618,39 +2043,115 @@
       state.currentWindowId = null;
       state.recentTabId = null;
       state.previewCaptureRequested = false;
+      state.previewRefreshPending = false;
+      state.previewPendingTabIds.clear();
       state.loading = false;
+      state.loadError = "The browser did not return the tab session. Close TabScroll and try again.";
       render();
     }
   }
 
   async function startPreviewCapture() {
-    if (state.previewCaptureRequested || !hasAdditionalPreviewCandidates()) {
+    const tabIds = getPreviewRequestTabIds();
+
+    if (!tabIds.length) {
       return;
     }
 
+    if (state.previewCaptureRequested) {
+      state.previewRefreshPending = true;
+      return;
+    }
+
+    const requestId = `${state.sessionId || state.hostTabId || "session"}:${++state.previewRequestSequence}`;
     state.previewCaptureRequested = true;
+    state.previewRefreshPending = false;
+    state.activePreviewRequestId = requestId;
+    state.activePreviewTabIds = tabIds;
+    tabIds.forEach((tabId) => {
+      state.previewAttemptedTabIds.add(tabId);
+      state.previewPendingTabIds.add(tabId);
+    });
+    renderAfterCarouselMotion();
 
     try {
       const response = await chrome.runtime.sendMessage({
         type: "tabscroll:request-all-previews",
         tabId: state.hostTabId,
+        sessionId: state.sessionId,
+        requestId,
+        tabIds,
       });
 
       if (!response?.ok) {
         throw new Error(response?.error || "Failed to capture previews");
       }
-    } catch (_error) {
-      state.previewCaptureRequested = false;
+    } catch (error) {
+      showStatus(getActionError(error, "Some previews could not be loaded"));
+    } finally {
+      finishPreviewCapture(requestId);
     }
   }
 
-  function hasAdditionalPreviewCandidates() {
-    return state.sourceTabs.some(
-      (tab) =>
-        !tab.active &&
-        !tab.preview &&
-        isPreviewCandidateUrl(tab.url || "")
-    );
+  function finishPreviewCapture(requestId) {
+    if (
+      requestId &&
+      state.activePreviewRequestId &&
+      requestId !== state.activePreviewRequestId
+    ) {
+      return;
+    }
+
+    const shouldRefresh = state.previewRefreshPending;
+    state.activePreviewTabIds.forEach((tabId) => state.previewPendingTabIds.delete(tabId));
+    state.activePreviewTabIds = [];
+    state.activePreviewRequestId = "";
+    state.previewCaptureRequested = false;
+    state.previewRefreshPending = false;
+    renderAfterCarouselMotion();
+
+    if (shouldRefresh || getPreviewRequestTabIds().length) {
+      void startPreviewCapture();
+    }
+  }
+
+  function getPreviewRequestTabIds() {
+    if (!state.visibleTabs.length) {
+      return [];
+    }
+
+    const offsets = [0, -1, 1, -2, 2];
+    const tabIds = [];
+
+    for (const offset of offsets) {
+      const tab = state.visibleTabs[wrapIndex(state.activeIndex + offset)];
+
+      if (
+        !tab ||
+        tab.active ||
+        tab.discarded ||
+        tab.preview ||
+        state.previewAttemptedTabIds.has(tab.id) ||
+        !isPreviewCandidateUrl(tab.url || "") ||
+        tabIds.includes(tab.id)
+      ) {
+        continue;
+      }
+
+      tabIds.push(tab.id);
+
+      if (tabIds.length >= MAX_PREVIEW_REQUEST_TABS) {
+        break;
+      }
+    }
+
+    return tabIds;
+  }
+
+  function normalizeSessionId(value) {
+    return typeof value === "string" && /^[a-z0-9:_-]{1,160}$/i.test(value)
+      ? value
+      : "";
   }
 
   function isPreviewCandidateUrl(value) {

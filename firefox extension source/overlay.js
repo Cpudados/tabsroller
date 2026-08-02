@@ -11,6 +11,7 @@
   const DRAG_COMMIT_DISTANCE = 72;
   const DRAG_COMMIT_VELOCITY = 0.45;
   const MAX_VISIBLE_DOTS = 15;
+  const MAX_PREVIEW_REQUEST_TABS = 5;
   const app = document.getElementById("app");
   const storedTheme = readStoredTheme();
   const systemThemeQuery =
@@ -40,9 +41,17 @@
     carouselClickLockedUntil: 0,
     deferredRenderTimer: 0,
     loading: true,
+    loadError: "",
     hostTabId: null,
+    sessionId: "",
     standalone: false,
     previewCaptureRequested: false,
+    previewRefreshPending: false,
+    previewRequestSequence: 0,
+    activePreviewRequestId: "",
+    activePreviewTabIds: [],
+    previewAttemptedTabIds: new Set(),
+    previewPendingTabIds: new Set(),
     wheelDelta: 0,
     wheelResetTimer: 0,
     wheelLockedUntil: 0,
@@ -95,6 +104,7 @@
   window.addEventListener("pointercancel", handlePointerCancel);
   window.addEventListener("message", handleParentMessage);
   window.addEventListener("pagehide", cancelPreviewCapture);
+  chrome.runtime.onMessage?.addListener?.(handleRuntimeMessage);
   document.addEventListener("click", handleClick);
   document.addEventListener("pointerdown", handlePointerDown);
   document.addEventListener("input", handleInput);
@@ -830,9 +840,12 @@
     }
 
     state.previewCaptureRequested = false;
+    state.previewRefreshPending = false;
+    state.previewPendingTabIds.clear();
     void chrome.runtime.sendMessage({
       type: "tabscroll:cancel-preview-capture",
       tabId: state.hostTabId,
+      sessionId: state.sessionId,
     });
   }
 
@@ -841,14 +854,30 @@
       return;
     }
 
-    const message = event.data;
+    handlePreviewMessage(event.data);
+  }
 
-    if (message?.type === "tabscroll:preview-capture-complete") {
-      state.previewCaptureRequested = false;
+  function handleRuntimeMessage(message) {
+    handlePreviewMessage(message);
+    return undefined;
+  }
+
+  function handlePreviewMessage(message) {
+    if (
+      !message ||
+      (state.sessionId && message.sessionId && message.sessionId !== state.sessionId)
+    ) {
       return;
     }
 
-    if (message?.type !== "tabscroll:previews-updated") {
+    if (message.type === "tabscroll:preview-capture-complete") {
+      // The request response is intentionally held open until capture finishes.
+      // Finalize from that response so a follow-up batch cannot race the
+      // background cleanup for the current session.
+      return;
+    }
+
+    if (message.type !== "tabscroll:previews-updated") {
       return;
     }
 
@@ -872,6 +901,7 @@
       }
 
       state.sourceTabs[tabIndex].preview = preview;
+      state.previewPendingTabIds.delete(tabId);
       updated = true;
     }
 
@@ -1093,6 +1123,24 @@
       return;
     }
 
+    if (state.loadError) {
+      app.innerHTML = [
+        '<div class="ts-shell" data-role="backdrop">',
+        renderHeader(),
+        '  <div class="ts-stage">',
+        '    <div class="ts-empty">',
+        '      <h2>Could not load tabs</h2>',
+        `      <p>${escapeHtml(state.loadError)}</p>`,
+        '      <button type="button" data-action="close">Close</button>',
+        "    </div>",
+        "  </div>",
+        renderLiveStatus(),
+        "</div>",
+      ].join("");
+      restoreSearchFocus();
+      return;
+    }
+
     if (!state.sourceTabs.length) {
       app.innerHTML = [
         '<div class="ts-shell" data-role="backdrop">',
@@ -1166,6 +1214,7 @@
     state.carouselSnapshot = null;
     restoreSearchFocus();
     playCarouselTransition(carouselSnapshot, carouselStep);
+    void startPreviewCapture();
   }
 
   function renderHeader() {
@@ -1258,6 +1307,7 @@
       ? "Saved-tab collection"
       : escapeHtml(formatUrl(tab.url || ""));
     const preview = sanitizeAssetUrl(tab.preview);
+    const previewFallback = getPreviewFallback(tab);
     const favicon = sanitizeAssetUrl(tab.favicon);
     const cardIcon = isCollection ? renderCollectionIcon() : renderFavicon(favicon);
     const selected = index === state.activeIndex;
@@ -1288,10 +1338,13 @@
         : preview
         ? `      <img src="${preview}" alt="Preview of ${title}" data-role="preview" data-tab-id="${tab.id}">`
         : [
-            '      <div class="ts-preview-fallback">',
+            `      <div class="ts-preview-fallback" data-state="${previewFallback.state}">`,
             '        <div class="ts-preview-fallback-inner">',
             `          <div class="ts-favicon-badge">${renderFavicon(favicon)}</div>`,
-            "          <span>No preview available</span>",
+            previewFallback.state === "loading"
+              ? '          <span class="ts-preview-spinner" aria-hidden="true"></span>'
+              : "",
+            `          <span>${previewFallback.label}</span>`,
             "        </div>",
             "      </div>",
           ].join(""),
@@ -1318,6 +1371,26 @@
       "  </div>",
       "</button>",
     ].join("");
+  }
+
+  function getPreviewFallback(tab) {
+    if (
+      tab.discarded ||
+      tab.kind === "tab-collection" ||
+      !isPreviewCandidateUrl(tab.url || "")
+    ) {
+      return { state: "unavailable", label: "No preview available" };
+    }
+
+    if (state.previewPendingTabIds.has(tab.id)) {
+      return { state: "loading", label: "Loading preview" };
+    }
+
+    if (state.previewAttemptedTabIds.has(tab.id)) {
+      return { state: "unavailable", label: "Preview unavailable" };
+    }
+
+    return { state: "loading", label: "Loading preview" };
   }
 
   function renderCollectionPreview(collectionName) {
@@ -1908,12 +1981,14 @@
       hostTabIdValue && /^\d+$/.test(hostTabIdValue) ? Number(hostTabIdValue) : undefined;
 
     state.hostTabId = typeof hostTabId === "number" ? hostTabId : null;
+    state.sessionId = normalizeSessionId(hashParams.get("session"));
     state.standalone = hashParams.get("standalone") === "1";
 
     try {
       const response = await chrome.runtime.sendMessage({
         type: "tabscroll:get-session",
         tabId: hostTabId,
+        sessionId: state.sessionId,
       });
 
       if (!response?.ok) {
@@ -1934,6 +2009,14 @@
       state.recentTabId =
         typeof response.payload?.recentTabId === "number" ? response.payload.recentTabId : null;
       state.previewCaptureRequested = false;
+      state.previewRefreshPending = false;
+      state.previewAttemptedTabIds.clear();
+      state.previewPendingTabIds.clear();
+      state.sourceTabs.forEach((tab) => {
+        if (tab.active && !tab.preview) {
+          state.previewAttemptedTabIds.add(tab.id);
+        }
+      });
       const payloadActiveIndex =
         typeof response.payload?.activeIndex === "number" ? response.payload.activeIndex : -1;
       const payloadSelectedTabId = payloadTabs[payloadActiveIndex]?.id;
@@ -1945,14 +2028,14 @@
       state.selectedTabId = typeof activeTabId === "number" ? activeTabId : null;
       refreshVisibleTabs({ preferredTabId: state.selectedTabId });
       state.loading = false;
+      state.loadError = "";
 
       render();
       focusOverlay();
 
-      if (!state.standalone && hasAdditionalPreviewCandidates()) {
-        void startPreviewCapture();
-      }
-    } catch (_error) {
+      void startPreviewCapture();
+    } catch (error) {
+      console.warn("TabScroll could not load the tab session.", error);
       state.sourceTabs = [];
       state.visibleTabs = [];
       state.activeIndex = 0;
@@ -1960,39 +2043,115 @@
       state.currentWindowId = null;
       state.recentTabId = null;
       state.previewCaptureRequested = false;
+      state.previewRefreshPending = false;
+      state.previewPendingTabIds.clear();
       state.loading = false;
+      state.loadError = "The browser did not return the tab session. Close TabScroll and try again.";
       render();
     }
   }
 
   async function startPreviewCapture() {
-    if (state.previewCaptureRequested || !hasAdditionalPreviewCandidates()) {
+    const tabIds = getPreviewRequestTabIds();
+
+    if (!tabIds.length) {
       return;
     }
 
+    if (state.previewCaptureRequested) {
+      state.previewRefreshPending = true;
+      return;
+    }
+
+    const requestId = `${state.sessionId || state.hostTabId || "session"}:${++state.previewRequestSequence}`;
     state.previewCaptureRequested = true;
+    state.previewRefreshPending = false;
+    state.activePreviewRequestId = requestId;
+    state.activePreviewTabIds = tabIds;
+    tabIds.forEach((tabId) => {
+      state.previewAttemptedTabIds.add(tabId);
+      state.previewPendingTabIds.add(tabId);
+    });
+    renderAfterCarouselMotion();
 
     try {
       const response = await chrome.runtime.sendMessage({
         type: "tabscroll:request-all-previews",
         tabId: state.hostTabId,
+        sessionId: state.sessionId,
+        requestId,
+        tabIds,
       });
 
       if (!response?.ok) {
         throw new Error(response?.error || "Failed to capture previews");
       }
-    } catch (_error) {
-      state.previewCaptureRequested = false;
+    } catch (error) {
+      showStatus(getActionError(error, "Some previews could not be loaded"));
+    } finally {
+      finishPreviewCapture(requestId);
     }
   }
 
-  function hasAdditionalPreviewCandidates() {
-    return state.sourceTabs.some(
-      (tab) =>
-        !tab.active &&
-        !tab.preview &&
-        isPreviewCandidateUrl(tab.url || "")
-    );
+  function finishPreviewCapture(requestId) {
+    if (
+      requestId &&
+      state.activePreviewRequestId &&
+      requestId !== state.activePreviewRequestId
+    ) {
+      return;
+    }
+
+    const shouldRefresh = state.previewRefreshPending;
+    state.activePreviewTabIds.forEach((tabId) => state.previewPendingTabIds.delete(tabId));
+    state.activePreviewTabIds = [];
+    state.activePreviewRequestId = "";
+    state.previewCaptureRequested = false;
+    state.previewRefreshPending = false;
+    renderAfterCarouselMotion();
+
+    if (shouldRefresh || getPreviewRequestTabIds().length) {
+      void startPreviewCapture();
+    }
+  }
+
+  function getPreviewRequestTabIds() {
+    if (!state.visibleTabs.length) {
+      return [];
+    }
+
+    const offsets = [0, -1, 1, -2, 2];
+    const tabIds = [];
+
+    for (const offset of offsets) {
+      const tab = state.visibleTabs[wrapIndex(state.activeIndex + offset)];
+
+      if (
+        !tab ||
+        tab.active ||
+        tab.discarded ||
+        tab.preview ||
+        state.previewAttemptedTabIds.has(tab.id) ||
+        !isPreviewCandidateUrl(tab.url || "") ||
+        tabIds.includes(tab.id)
+      ) {
+        continue;
+      }
+
+      tabIds.push(tab.id);
+
+      if (tabIds.length >= MAX_PREVIEW_REQUEST_TABS) {
+        break;
+      }
+    }
+
+    return tabIds;
+  }
+
+  function normalizeSessionId(value) {
+    return typeof value === "string" && /^[a-z0-9:_-]{1,160}$/i.test(value)
+      ? value
+      : "";
   }
 
   function isPreviewCandidateUrl(value) {

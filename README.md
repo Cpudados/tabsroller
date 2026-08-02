@@ -12,7 +12,7 @@ To load it temporarily in Firefox:
 
 What it does:
 
-- Opens a full-screen TabScroll overlay from the toolbar button or the `Ctrl+Shift+K` / `Command+Shift+K` shortcut.
+- Opens a full-screen TabScroll overlay from the toolbar button or the `Ctrl+Shift+Y` / `Command+Shift+K` shortcut.
 - Pulls the real tabs from normal browser windows, with a toggle between the current window and all windows.
 - Filters tabs immediately by title, domain, or URL when you type.
 - Uses scroll, arrow keys, or neighboring-card clicks to move through a single three-slot carousel.
@@ -26,7 +26,7 @@ Notes:
 
 - `T`, `R`, `P`, and `M` remain shortcuts while search is idle. Click the search field or press `/` first when a query begins with one of those letters.
 - TabScroll captures the active tab preview as soon as you open the overlay.
-- TabScroll captures inactive-tab previews with Firefox's native tab-capture API in a small parallel batch.
+- TabScroll captures nearby inactive-tab previews on demand with Firefox's native tab-capture API in small, session-scoped batches.
 - Downscaled previews are cached for the browser session and invalidated when a tab navigates, so reopening TabScroll can reuse unchanged previews without another capture.
 - Firefox internal pages, the Add-ons site, and other extension pages do not allow content-script overlays. TabScroll opens its standalone tab view on those pages instead.
 - Tab-stashing extension pages such as OneTab are detected as saved-tab collections and shown with a dedicated collection card. The browser keeps their saved links private, so TabScroll opens the collection page instead of trying to inspect its contents.

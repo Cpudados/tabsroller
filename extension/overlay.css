@@ -1,8 +1,9 @@
-/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 */
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R4 V5 */
 /* Hallmark · component: carousel · genre: modern-minimal · theme: Carbon Vermilion
+ * states: default · hover · focus · active · disabled · loading · error · success
  * enrichment: none · one DOM reel with previous / focused / next slots
  * theme: Carbon Vermilion · accent use: selection signal only
- * motion: selection-driven horizontal shift; no ambient loop
+ * motion: kinetic rail · lifted focus arc · drag-to-snap; no ambient loop
  * contrast: pass (40–41) · nav: compact utility header · footer: none
  * slop: pass (42–45) · honest: pass (46) · chrome: pass (47)
  * tokens: pass (48) · responsive: static pass (34, 49–57) · icons: pass (30)
@@ -488,15 +489,46 @@ button:disabled:active {
 }
 
 .ts-cards {
-  --carousel-side-width: min(22rem, 22vw);
-  --carousel-spread: min(33rem, 42vw);
+  --carousel-side-width: min(21rem, 21vw);
+  --carousel-spread: min(34rem, 42vw);
+  --carousel-drag-x: 0rem;
   position: relative;
   width: 100%;
   height: 100%;
   min-width: 0;
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.ts-cards::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(76rem, 86%);
+  border-top: var(--rule-hairline) solid var(--color-rule);
+  content: "";
+  opacity: 0.52;
+  pointer-events: none;
+  transform:
+    translate(
+      -50%,
+      calc(-50% + var(--space-3xl) + var(--space-xl) + var(--space-sm))
+    );
 }
 
 .ts-card-wrap {
+  --carousel-slot-x: 0rem;
+  --carousel-slot-y: 0rem;
+  --carousel-slot-rotate: 0deg;
+  --carousel-slot-scale: 0.94;
+  --carousel-slot-opacity: 0;
+  --carousel-transform:
+    translate(
+      calc(-50% + var(--carousel-slot-x) + var(--carousel-drag-x)),
+      calc(-50% + var(--carousel-slot-y))
+    )
+    rotate(var(--carousel-slot-rotate))
+    scale(var(--carousel-slot-scale));
   position: absolute;
   top: 50%;
   left: 50%;
@@ -508,46 +540,94 @@ button:disabled:active {
   background: transparent;
   color: inherit;
   cursor: pointer;
-  opacity: 0;
+  opacity: var(--carousel-slot-opacity);
   pointer-events: none;
-  transform: translate(-50%, -50%) scale(0.94);
+  transform: var(--carousel-transform);
   transform-origin: 50% 50%;
   transition:
-    transform var(--dur-medium) var(--ease-out),
+    transform var(--dur-carousel) var(--ease-out),
     opacity var(--dur-short) var(--ease-out);
-  will-change: transform, opacity;
 }
 
 .ts-card-wrap[data-position="center"] {
+  --carousel-slot-y: calc(0rem - var(--space-2xs));
+  --carousel-slot-scale: 1;
+  --carousel-slot-opacity: 1;
   z-index: 2;
-  opacity: 1;
   pointer-events: auto;
-  transform: translate(-50%, -50%) scale(1);
+}
+
+.ts-card-wrap[data-position="off-left"] {
+  --carousel-slot-x: calc(0rem - var(--carousel-spread) - var(--space-2xl));
+  --carousel-slot-y: var(--space-lg);
+  --carousel-slot-rotate: 2.25deg;
+  --carousel-slot-scale: 0.88;
+}
+
+.ts-card-wrap[data-position="off-right"] {
+  --carousel-slot-x: calc(var(--carousel-spread) + var(--space-2xl));
+  --carousel-slot-y: var(--space-lg);
+  --carousel-slot-rotate: -2.25deg;
+  --carousel-slot-scale: 0.88;
+}
+
+.ts-cards.is-dragging,
+.ts-cards.is-dragging .ts-card-wrap {
+  cursor: grabbing;
+}
+
+.ts-cards.is-dragging .ts-card-wrap {
+  transition: none;
+}
+
+.ts-card-wrap[data-ghost="exit"] {
+  z-index: 0;
+  pointer-events: none;
+}
+
+.ts-card-wrap[data-from-position],
+.ts-cards.is-dragging .ts-card-wrap,
+.ts-card-wrap[data-ghost="exit"] {
+  will-change: transform, opacity;
 }
 
 .ts-card-wrap[data-from-position] {
-  animation: ts-carousel-card-shift var(--dur-medium) var(--ease-out) both;
+  animation: ts-carousel-card-shift var(--dur-carousel) var(--ease-out) both;
 }
 
 .ts-card-wrap[data-from-position="center"] {
   --ts-carousel-from-opacity: 1;
-  --ts-carousel-from-transform: translate(-50%, -50%) scale(1);
+  --ts-carousel-from-transform:
+    translate(
+      calc(-50% + var(--carousel-drag-x)),
+      calc(-50% - var(--space-2xs))
+    )
+    rotate(0deg)
+    scale(1);
 }
 
 .ts-card-wrap[data-from-position="left"],
 .ts-card-wrap[data-from-position="off-left"] {
   --ts-carousel-from-opacity: 0;
   --ts-carousel-from-transform:
-    translate(calc(-50% - var(--space-xl)), -50%)
-    scale(0.94);
+    translate(
+      calc(-50% - var(--space-xl) + var(--carousel-drag-x)),
+      calc(-50% + var(--space-xs))
+    )
+    rotate(1.5deg)
+    scale(0.92);
 }
 
 .ts-card-wrap[data-from-position="right"],
 .ts-card-wrap[data-from-position="off-right"] {
   --ts-carousel-from-opacity: 0;
   --ts-carousel-from-transform:
-    translate(calc(-50% + var(--space-xl)), -50%)
-    scale(0.94);
+    translate(
+      calc(-50% + var(--space-xl) + var(--carousel-drag-x)),
+      calc(-50% + var(--space-xs))
+    )
+    rotate(-1.5deg)
+    scale(0.92);
 }
 
 @keyframes ts-carousel-card-shift {
@@ -557,6 +637,22 @@ button:disabled:active {
       --ts-carousel-from-transform,
       translate(-50%, -50%) scale(0.78)
     );
+  }
+
+  58% {
+    opacity: var(--carousel-slot-opacity);
+    transform:
+      translate(
+        calc(-50% + var(--carousel-slot-x) + var(--carousel-drag-x)),
+        calc(-50% + var(--carousel-slot-y) - var(--space-xs))
+      )
+      rotate(var(--carousel-slot-rotate))
+      scale(var(--carousel-slot-scale));
+  }
+
+  to {
+    opacity: var(--carousel-slot-opacity);
+    transform: var(--carousel-transform);
   }
 }
 
@@ -593,8 +689,37 @@ button:disabled:active {
   transform: translateX(-50%);
 }
 
+.ts-cards[data-motion="forward"] .ts-card-wrap[data-position="center"] .ts-card::before {
+  transform-origin: 100% 50%;
+  animation: ts-focus-sweep var(--dur-carousel) var(--ease-out) both;
+}
+
+.ts-cards[data-motion="backward"] .ts-card-wrap[data-position="center"] .ts-card::before {
+  transform-origin: 0% 50%;
+  animation: ts-focus-sweep var(--dur-carousel) var(--ease-out) both;
+}
+
+@keyframes ts-focus-sweep {
+  from {
+    opacity: 0.35;
+    transform: translateX(-50%) scaleX(0.28);
+  }
+
+  62% {
+    opacity: 1;
+    transform: translateX(-50%) scaleX(1.35);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) scaleX(1);
+  }
+}
+
 @media (hover: hover) {
-  .ts-card-wrap[data-position="center"]:hover .ts-card {
+  .ts-card-wrap[data-position="center"]:hover .ts-card,
+  .ts-card-wrap[data-position="left"]:hover .ts-card,
+  .ts-card-wrap[data-position="right"]:hover .ts-card {
     border-color: color-mix(in oklch, var(--color-rule-strong) 55%, var(--color-accent) 45%);
   }
 }
@@ -620,8 +745,12 @@ button:disabled:active {
 }
 
 .ts-card-wrap:not([data-position="center"]) .ts-preview > img {
-  opacity: 0.28;
-  filter: grayscale(1) contrast(1.08);
+  opacity: 0.42;
+  filter: grayscale(0.82) contrast(1.06);
+}
+
+.ts-card-wrap:not([data-position="center"]) .ts-card-title {
+  color: var(--color-ink-muted);
 }
 
 .ts-preview-fallback,
@@ -644,6 +773,19 @@ button:disabled:active {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   letter-spacing: 0.04em;
+}
+
+.ts-preview-fallback[data-state="loading"] .ts-preview-fallback-inner {
+  color: var(--color-ink-muted);
+}
+
+.ts-preview-spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 0.1rem solid var(--color-rule);
+  border-top-color: var(--color-accent);
+  border-radius: 999px;
+  animation: ts-spin 0.8s linear infinite;
 }
 
 .ts-favicon-badge {
@@ -1318,49 +1460,73 @@ button:disabled:active {
 
 @media (min-width: 52rem) {
   .ts-card-wrap[data-position="left"],
-  .ts-card-wrap[data-position="right"] {
-    z-index: 1;
+  .ts-card-wrap[data-position="right"],
+  .ts-card-wrap[data-position="off-left"],
+  .ts-card-wrap[data-position="off-right"] {
     width: var(--carousel-side-width);
+  }
+
+  .ts-card-wrap[data-position="left"],
+  .ts-card-wrap[data-position="right"] {
+    --carousel-slot-y: var(--space-lg);
+    --carousel-slot-scale: 0.96;
+    --carousel-slot-opacity: 1;
+    z-index: 1;
     pointer-events: auto;
-    opacity: 0.58;
   }
 
   .ts-card-wrap[data-position="left"] {
-    transform: translate(calc(-50% - var(--carousel-spread)), -50%);
+    --carousel-slot-x: calc(0rem - var(--carousel-spread));
+    --carousel-slot-rotate: 1.5deg;
   }
 
   .ts-card-wrap[data-position="right"] {
-    transform: translate(calc(-50% + var(--carousel-spread)), -50%);
+    --carousel-slot-x: var(--carousel-spread);
+    --carousel-slot-rotate: -1.5deg;
   }
 
   .ts-card-wrap[data-from-position="left"] {
-    --ts-carousel-from-opacity: 0.58;
+    --ts-carousel-from-opacity: 1;
     --ts-carousel-from-transform:
-      translate(calc(-50% - var(--carousel-spread)), -50%);
+      translate(
+        calc(-50% - var(--carousel-spread) + var(--carousel-drag-x)),
+        calc(-50% + var(--space-lg))
+      )
+      rotate(1.5deg)
+      scale(0.96);
   }
 
   .ts-card-wrap[data-from-position="right"] {
-    --ts-carousel-from-opacity: 0.58;
+    --ts-carousel-from-opacity: 1;
     --ts-carousel-from-transform:
-      translate(calc(-50% + var(--carousel-spread)), -50%);
+      translate(
+        calc(-50% + var(--carousel-spread) + var(--carousel-drag-x)),
+        calc(-50% + var(--space-lg))
+      )
+      rotate(-1.5deg)
+      scale(0.96);
   }
 
   .ts-card-wrap[data-from-position="off-left"] {
     --ts-carousel-from-opacity: 0;
     --ts-carousel-from-transform:
       translate(
-        calc(-50% - var(--carousel-spread) - var(--space-xl)),
-        -50%
-      );
+        calc(-50% - var(--carousel-spread) - var(--space-2xl) + var(--carousel-drag-x)),
+        calc(-50% + var(--space-lg))
+      )
+      rotate(2.25deg)
+      scale(0.88);
   }
 
   .ts-card-wrap[data-from-position="off-right"] {
     --ts-carousel-from-opacity: 0;
     --ts-carousel-from-transform:
       translate(
-        calc(-50% + var(--carousel-spread) + var(--space-xl)),
-        -50%
-      );
+        calc(-50% + var(--carousel-spread) + var(--space-2xl) + var(--carousel-drag-x)),
+        calc(-50% + var(--space-lg))
+      )
+      rotate(-2.25deg)
+      scale(0.88);
   }
 }
 
@@ -1585,6 +1751,20 @@ button:disabled:active {
   }
 
   .ts-card-wrap[data-from-position] {
+    animation: ts-carousel-card-fade var(--dur-instant) linear both;
+  }
+
+  .ts-cards[data-motion] .ts-card-wrap[data-position="center"] .ts-card::before {
     animation: none;
+  }
+
+  @keyframes ts-carousel-card-fade {
+    from {
+      opacity: var(--ts-carousel-from-opacity, 0);
+    }
+
+    to {
+      opacity: var(--carousel-slot-opacity);
+    }
   }
 }

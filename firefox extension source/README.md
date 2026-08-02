@@ -42,4 +42,3 @@ The resulting ZIP is identical to the submitted extension — no compilation, tr
 | `overlay.css` | Overlay styles |
 | `tokens.css` | Design tokens (colors, typography) |
 | `icons/` | Extension icons |
-| `vendor/` | Bundled third-party libraries (Three.js — MIT license) |
