@@ -1,0 +1,73 @@
+{
+  "manifest_version": 3,
+  "name": "TabScroll",
+  "version": "0.2.1",
+  "description": "A full-screen tab switcher for searching and managing tabs across crowded Firefox windows.",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": [
+      "tab-classifier.js",
+      "background.js"
+    ]
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/tabscroll-16.png",
+      "32": "icons/tabscroll-32.png",
+      "48": "icons/tabscroll-48.png"
+    },
+    "default_title": "Open TabScroll"
+  },
+  "commands": {
+    "toggle-tabscroll": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+K"
+      },
+      "description": "Open TabScroll"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "overlay.html",
+        "tokens.css",
+        "overlay.css",
+        "overlay.js",
+        "icons/*"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icons/tabscroll-16.png",
+    "32": "icons/tabscroll-32.png",
+    "48": "icons/tabscroll-48.png",
+    "128": "icons/tabscroll-128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "tabscroll@cpudados.github.io",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
+  }
+}
