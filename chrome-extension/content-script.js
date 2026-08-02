@@ -1,5 +1,8 @@
 (() => {
-  const INSTANCE_KEY = "__tabscrollContentScriptLoaded__";
+  const CONTENT_SCRIPT_PROTOCOL = 2;
+  const INSTANCE_KEY = `__tabscrollContentScriptV${CONTENT_SCRIPT_PROTOCOL}__`;
+  const PING_MESSAGE = `tabscroll:v${CONTENT_SCRIPT_PROTOCOL}:ping`;
+  const TOGGLE_MESSAGE = `tabscroll:v${CONTENT_SCRIPT_PROTOCOL}:toggle-overlay`;
 
   if (window[INSTANCE_KEY]) {
     return;
@@ -12,49 +15,24 @@
 
   let frame = null;
   let hostTabId = null;
+  let sessionId = "";
+
+  document.getElementById(FRAME_ID)?.remove();
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === "tabscroll:ping") {
-      sendResponse({ ok: true });
+    if (message?.type === PING_MESSAGE) {
+      sendResponse({ ok: true, protocol: CONTENT_SCRIPT_PROTOCOL });
       return;
     }
 
-    if (message?.type === "tabscroll:toggle-overlay") {
+    if (message?.type === TOGGLE_MESSAGE && message.protocol === CONTENT_SCRIPT_PROTOCOL) {
       hostTabId = typeof message.tabId === "number" ? message.tabId : hostTabId;
+      sessionId = typeof message.sessionId === "string" ? message.sessionId : sessionId;
 
       if (frame) {
         closeOverlay();
       } else {
         openOverlay();
-      }
-
-      sendResponse({ ok: true });
-      return;
-    }
-
-    if (message?.type === "tabscroll:previews-updated") {
-      if (frame?.contentWindow) {
-        frame.contentWindow.postMessage(
-          {
-            type: "tabscroll:previews-updated",
-            previews: message.previews,
-          },
-          EXTENSION_ORIGIN
-        );
-      }
-
-      sendResponse({ ok: true });
-      return;
-    }
-
-    if (message?.type === "tabscroll:preview-capture-complete") {
-      if (frame?.contentWindow) {
-        frame.contentWindow.postMessage(
-          {
-            type: "tabscroll:preview-capture-complete",
-          },
-          EXTENSION_ORIGIN
-        );
       }
 
       sendResponse({ ok: true });
@@ -74,7 +52,11 @@
 
     frame = document.createElement("iframe");
     frame.id = FRAME_ID;
-    frame.src = chrome.runtime.getURL(`overlay.html#tab=${encodeURIComponent(String(hostTabId ?? ""))}`);
+    frame.src = chrome.runtime.getURL(
+      `overlay.html#tab=${encodeURIComponent(
+        String(hostTabId ?? "")
+      )}&session=${encodeURIComponent(sessionId)}`
+    );
     frame.title = "TabScroll";
     frame.tabIndex = -1;
     frame.setAttribute("allowtransparency", "true");
@@ -103,12 +85,14 @@
       void chrome.runtime.sendMessage({
         type: "tabscroll:cancel-preview-capture",
         tabId: hostTabId,
+        sessionId,
       });
     }
 
     frame.remove();
     frame = null;
     hostTabId = null;
+    sessionId = "";
   }
 
   function handleFrameMessage(event) {

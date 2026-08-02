@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TabScroll preview harness</title>
+    <link rel="stylesheet" href="../tokens.css">
+    <link rel="stylesheet" href="../overlay.css">
+  </head>
+  <body tabindex="-1">
+    <div id="app"></div>
+    <script>
+      const runtimeListeners = [];
+      const previewFor = (tabId) => {
+        const colors = ["#d95d39", "#277da1", "#6a994e", "#7b2cbf", "#bc6c25"];
+        const color = colors[(tabId - 2) % colors.length];
+        const svg = [
+          '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450">',
+          `<rect width="800" height="450" fill="${color}"/>`,
+          '<rect x="56" y="56" width="688" height="338" rx="24" fill="white" opacity=".9"/>',
+          `<text x="400" y="245" text-anchor="middle" font-family="sans-serif" font-size="48" fill="#171717">Preview ${tabId}</text>`,
+          '</svg>'
+        ].join("");
+        return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+      };
+      const tabs = Array.from({ length: 8 }, (_, index) => ({
+        id: index + 1,
+        windowId: 11,
+        index,
+        title: index === 0 ? "Active workspace" : `Project tab ${index + 1}`,
+        url: `https://example.com/project/${index + 1}`,
+        favicon: "",
+        preview: index === 0 ? previewFor(1) : "",
+        active: index === 0,
+        discarded: false,
+        lastAccessed: Date.now() - index * 60_000,
+        kind: "regular-tab",
+        collectionName: "",
+        windowLabel: "Current Window"
+      }));
+
+      window.chrome = {
+        runtime: {
+          id: "tabscroll-test",
+          onMessage: {
+            addListener(listener) {
+              runtimeListeners.push(listener);
+            }
+          },
+          async sendMessage(message) {
+            if (message?.type === "tabscroll:get-session") {
+              return {
+                ok: true,
+                payload: {
+                  activeIndex: 0,
+                  currentWindowId: 11,
+                  recentTabId: 2,
+                  tabs
+                }
+              };
+            }
+
+            if (message?.type === "tabscroll:request-all-previews") {
+              await new Promise((resolve) => setTimeout(resolve, 140));
+              runtimeListeners.forEach((listener) => listener({
+                type: "tabscroll:previews-updated",
+                sessionId: message.sessionId,
+                requestId: message.requestId,
+                previews: message.tabIds.map((tabId) => ({
+                  tabId,
+                  preview: previewFor(tabId)
+                }))
+              }));
+              runtimeListeners.forEach((listener) => listener({
+                type: "tabscroll:preview-capture-complete",
+                sessionId: message.sessionId,
+                requestId: message.requestId,
+                failedTabIds: []
+              }));
+              return { ok: true };
+            }
+
+            return { ok: true };
+          }
+        }
+      };
+    </script>
+    <script src="../overlay.js"></script>
+  </body>
+</html>
