@@ -1,4 +1,4 @@
-const chrome = globalThis.browser || globalThis.chrome;
+const browser = globalThis.browser;
 
 if (typeof importScripts === "function") {
   importScripts("tab-classifier.js");
@@ -46,17 +46,17 @@ let previewCacheLoadPromise = null;
 let previewCachePersistPromise = Promise.resolve();
 let sessionSequence = 0;
 
-chrome.tabs.onUpdated?.addListener?.((tabId, changeInfo) => {
+browser.tabs.onUpdated?.addListener?.((tabId, changeInfo) => {
   if (changeInfo.url || changeInfo.status === "loading") {
     invalidateCachedPreview(tabId);
   }
 });
 
-chrome.tabs.onRemoved?.addListener?.((tabId) => {
+browser.tabs.onRemoved?.addListener?.((tabId) => {
   invalidateCachedPreview(tabId);
 });
 
-chrome.action.onClicked.addListener((tab) => {
+browser.action.onClicked.addListener((tab) => {
   if (!tab?.id) {
     return;
   }
@@ -64,7 +64,7 @@ chrome.action.onClicked.addListener((tab) => {
   void openTabScroll(tab.id);
 });
 
-chrome.commands.onCommand.addListener((command) => {
+browser.commands.onCommand.addListener((command) => {
   if (command !== "toggle-tabscroll") {
     return;
   }
@@ -72,7 +72,7 @@ chrome.commands.onCommand.addListener((command) => {
   void openForActiveTab();
 });
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === ACTIVATE_MESSAGE) {
     void activateTab(message.tabId)
       .then(() => sendResponse({ ok: true }))
@@ -144,7 +144,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function openForActiveTab() {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabs = await browser.tabs.query({ active: true, currentWindow: true });
   const activeTab = tabs[0];
 
   if (!activeTab?.id) {
@@ -159,7 +159,7 @@ async function openTabScroll(tabId) {
   let sessionId = "";
 
   try {
-    hostTab = await chrome.tabs.get(tabId);
+    hostTab = await browser.tabs.get(tabId);
 
     if (typeof hostTab?.windowId !== "number") {
       return;
@@ -181,7 +181,7 @@ async function openTabScroll(tabId) {
     console.info("TabScroll is using its standalone view for this page.", error);
 
     try {
-      hostTab = hostTab || (await chrome.tabs.get(tabId));
+      hostTab = hostTab || (await browser.tabs.get(tabId));
       sessionId = sessionId || createSessionId(tabId);
 
       if (!pendingSessions.has(sessionId)) {
@@ -214,14 +214,14 @@ async function getSessionForSender(sender, explicitTabId, explicitSessionId) {
     return await cached.payload;
   }
 
-  const tab = await chrome.tabs.get(tabId);
+  const tab = await browser.tabs.get(tabId);
   return buildOverlayPayload(tab);
 }
 
 async function buildOverlayPayload(hostTab) {
   const hostClassification = classifyTab(hostTab);
   const [allTabs, activePreview] = await Promise.all([
-    chrome.tabs.query({ windowType: "normal" }),
+    browser.tabs.query({ windowType: "normal" }),
     hostClassification.kind === TAB_COLLECTION_KIND
       ? Promise.resolve("")
       : hostTab.active
@@ -327,13 +327,13 @@ async function openStandaloneOverlay(hostTab, sessionId) {
     throw new Error("Missing host tab for standalone view");
   }
 
-  const url = chrome.runtime.getURL(
+  const url = browser.runtime.getURL(
     `overlay.html#tab=${encodeURIComponent(String(hostTab.id))}&session=${encodeURIComponent(
       normalizeSessionId(sessionId)
     )}&standalone=1`
   );
 
-  await chrome.tabs.create({
+  await browser.tabs.create({
     windowId: hostTab.windowId,
     index: hostTab.index + 1,
     active: true,
@@ -348,7 +348,7 @@ async function closeStandaloneTab(sender) {
     throw new Error("TabScroll can only close its own standalone tab");
   }
 
-  await chrome.tabs.remove(tabId);
+  await browser.tabs.remove(tabId);
 }
 
 async function ensureContentScript(tabId) {
@@ -362,7 +362,7 @@ async function ensureContentScript(tabId) {
     // Inject the current protocol below.
   }
 
-  await chrome.scripting.executeScript({
+  await browser.scripting.executeScript({
     target: { tabId },
     files: ["content-script.js"],
   });
@@ -377,20 +377,20 @@ async function ensureContentScript(tabId) {
 async function activateTab(tabId) {
   validateTabId(tabId);
 
-  const targetTab = await chrome.tabs.get(tabId);
-  await chrome.windows.update(targetTab.windowId, { focused: true });
-  await chrome.tabs.update(tabId, { active: true });
+  const targetTab = await browser.tabs.get(tabId);
+  await browser.windows.update(targetTab.windowId, { focused: true });
+  await browser.tabs.update(tabId, { active: true });
 }
 
 async function closeTab(tabId) {
   validateTabId(tabId);
-  await chrome.tabs.remove(tabId);
+  await browser.tabs.remove(tabId);
 }
 
 async function togglePinnedTab(tabId) {
   validateTabId(tabId);
-  const tab = await chrome.tabs.get(tabId);
-  const updatedTab = await chrome.tabs.update(tabId, {
+  const tab = await browser.tabs.get(tabId);
+  const updatedTab = await browser.tabs.update(tabId, {
     pinned: !Boolean(tab.pinned),
   });
 
@@ -399,8 +399,8 @@ async function togglePinnedTab(tabId) {
 
 async function toggleMutedTab(tabId) {
   validateTabId(tabId);
-  const tab = await chrome.tabs.get(tabId);
-  const updatedTab = await chrome.tabs.update(tabId, {
+  const tab = await browser.tabs.get(tabId);
+  const updatedTab = await browser.tabs.update(tabId, {
     muted: !Boolean(tab.mutedInfo?.muted),
   });
 
@@ -416,7 +416,7 @@ async function captureVisiblePreview(windowId) {
     }
 
     try {
-      const preview = await chrome.tabs.captureVisibleTab(windowId, {
+      const preview = await browser.tabs.captureVisibleTab(windowId, {
         format: PREVIEW_FORMAT,
         quality: PREVIEW_QUALITY,
       });
@@ -439,7 +439,7 @@ async function captureVisiblePreview(windowId) {
 }
 
 async function safeSendMessage(tabId, message) {
-  return chrome.tabs.sendMessage(tabId, message);
+  return browser.tabs.sendMessage(tabId, message);
 }
 
 async function requestAllPreviewsForSession(
@@ -527,8 +527,8 @@ async function captureAllPreviewsForSession(
 
   try {
     await ensurePreviewCacheLoaded();
-    const hostTab = await chrome.tabs.get(sessionTabId);
-    const allTabs = await chrome.tabs.query({ windowType: "normal" });
+    const hostTab = await browser.tabs.get(sessionTabId);
+    const allTabs = await browser.tabs.query({ windowType: "normal" });
     const eligibleTabs = allTabs
       .filter(
         (tab) =>
@@ -711,7 +711,7 @@ function normalizeRequestedTabIds(values) {
 }
 
 function isTabScrollPage(value) {
-  return typeof value === "string" && value.startsWith(chrome.runtime.getURL("overlay.html"));
+  return typeof value === "string" && value.startsWith(browser.runtime.getURL("overlay.html"));
 }
 
 function orderTabsByWindow(tabs, currentWindowId) {
@@ -821,7 +821,7 @@ async function ensurePreviewCacheLoaded() {
   }
 
   previewCacheLoadPromise = (async () => {
-    const sessionStorage = chrome.storage?.session;
+    const sessionStorage = browser.storage?.session;
 
     if (!sessionStorage?.get) {
       return;
@@ -929,7 +929,7 @@ function schedulePreviewCachePersist() {
 }
 
 async function persistPreviewCache() {
-  const sessionStorage = chrome.storage?.session;
+  const sessionStorage = browser.storage?.session;
 
   if (!sessionStorage?.set) {
     return;
@@ -954,7 +954,7 @@ async function notifyPreviewsUpdated(sessionTabId, sessionId, requestId, preview
   }
 
   try {
-    await chrome.runtime.sendMessage({
+    await browser.runtime.sendMessage({
       type: PREVIEWS_UPDATED_MESSAGE,
       tabId: sessionTabId,
       sessionId: normalizeSessionId(sessionId),
@@ -977,7 +977,7 @@ async function notifyPreviewCaptureComplete(
   }
 
   try {
-    await chrome.runtime.sendMessage({
+    await browser.runtime.sendMessage({
       type: PREVIEW_CAPTURE_COMPLETE_MESSAGE,
       tabId: sessionTabId,
       sessionId: normalizeSessionId(sessionId),
@@ -1000,7 +1000,7 @@ async function captureTabPreview(tabId, captureState = { cancelled: false }) {
     }
 
     try {
-      const preview = await chrome.tabs.captureTab(tabId, {
+      const preview = await browser.tabs.captureTab(tabId, {
         format: PREVIEW_FORMAT,
         quality: BACKGROUND_PREVIEW_QUALITY,
       });
@@ -1122,7 +1122,7 @@ function normalizeFavicon(value) {
       return value;
     }
 
-    if (value.startsWith(chrome.runtime.getURL(""))) {
+    if (value.startsWith(browser.runtime.getURL(""))) {
       return value;
     }
   } catch (_error) {

@@ -1,5 +1,5 @@
 (() => {
-  const chrome = globalThis.browser || globalThis.chrome;
+  const browser = globalThis.browser;
   const CONTENT_SCRIPT_PROTOCOL = 2;
   const INSTANCE_KEY = `__tabscrollContentScriptV${CONTENT_SCRIPT_PROTOCOL}__`;
   const PING_MESSAGE = `tabscroll:v${CONTENT_SCRIPT_PROTOCOL}:ping`;
@@ -19,7 +19,7 @@
 
   document.getElementById(FRAME_ID)?.remove();
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === PING_MESSAGE) {
       sendResponse({ ok: true, protocol: CONTENT_SCRIPT_PROTOCOL });
       return;
@@ -52,7 +52,7 @@
 
     frame = document.createElement("iframe");
     frame.id = FRAME_ID;
-    frame.src = chrome.runtime.getURL(
+    frame.src = browser.runtime.getURL(
       `overlay.html#tab=${encodeURIComponent(
         String(hostTabId ?? "")
       )}&session=${encodeURIComponent(sessionId)}`
@@ -82,7 +82,7 @@
     }
 
     if (typeof hostTabId === "number") {
-      void chrome.runtime.sendMessage({
+      void browser.runtime.sendMessage({
         type: "tabscroll:cancel-preview-capture",
         tabId: hostTabId,
         sessionId,

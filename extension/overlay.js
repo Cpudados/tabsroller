@@ -1,5 +1,5 @@
 (function () {
-  const chrome = globalThis.browser || globalThis.chrome;
+  const browser = globalThis.browser;
   const THEME_STORAGE_KEY = "tabscroll:theme";
   const THEME_NIGHT = "night";
   const THEME_WHITE = "white";
@@ -104,7 +104,7 @@
   window.addEventListener("pointercancel", handlePointerCancel);
   window.addEventListener("message", handleParentMessage);
   window.addEventListener("pagehide", cancelPreviewCapture);
-  chrome.runtime.onMessage?.addListener?.(handleRuntimeMessage);
+  browser.runtime.onMessage?.addListener?.(handleRuntimeMessage);
   document.addEventListener("click", handleClick);
   document.addEventListener("pointerdown", handlePointerDown);
   document.addEventListener("input", handleInput);
@@ -622,7 +622,7 @@
 
   async function activateTab(tab) {
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await browser.runtime.sendMessage({
         type: "tabscroll:activate-tab",
         tabId: tab.id,
       });
@@ -654,7 +654,7 @@
     state.pendingActions.set(actionKey, true);
 
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await browser.runtime.sendMessage({
         type: "tabscroll:close-tab",
         tabId: tab.id,
       });
@@ -707,7 +707,7 @@
     state.pendingActions.set(actionKey, true);
 
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await browser.runtime.sendMessage({
         type,
         tabId: selectedTab.id,
       });
@@ -820,7 +820,7 @@
     cancelPreviewCapture();
 
     if (state.standalone) {
-      void chrome.runtime.sendMessage({
+      void browser.runtime.sendMessage({
         type: "tabscroll:close-standalone",
       });
       return;
@@ -842,7 +842,7 @@
     state.previewCaptureRequested = false;
     state.previewRefreshPending = false;
     state.previewPendingTabIds.clear();
-    void chrome.runtime.sendMessage({
+    void browser.runtime.sendMessage({
       type: "tabscroll:cancel-preview-capture",
       tabId: state.hostTabId,
       sessionId: state.sessionId,
@@ -1985,7 +1985,7 @@
     state.standalone = hashParams.get("standalone") === "1";
 
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await browser.runtime.sendMessage({
         type: "tabscroll:get-session",
         tabId: hostTabId,
         sessionId: state.sessionId,
@@ -2075,7 +2075,7 @@
     renderAfterCarouselMotion();
 
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await browser.runtime.sendMessage({
         type: "tabscroll:request-all-previews",
         tabId: state.hostTabId,
         sessionId: state.sessionId,
@@ -2190,7 +2190,7 @@
         return value;
       }
 
-      if (value.startsWith(chrome.runtime.getURL(""))) {
+      if (value.startsWith(browser.runtime.getURL(""))) {
         return value;
       }
     } catch (_error) {

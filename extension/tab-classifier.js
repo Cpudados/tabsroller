@@ -9,12 +9,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : self, function () {
   const TAB_COLLECTION_KIND = "tab-collection";
   const REGULAR_TAB_KIND = "tab";
-  const ONE_TAB_EXTENSION_ID = "chphlpgkkbolifaimnlloiipkdnihall";
-  const EXTENSION_PROTOCOLS = new Set([
-    "chrome-extension:",
-    "edge-extension:",
-    "moz-extension:",
-  ]);
+  const EXTENSION_PROTOCOLS = new Set(["moz-extension:"]);
   const COLLECTION_SIGNATURES = [
     {
       name: "OneTab",
@@ -51,10 +46,6 @@
         kind: REGULAR_TAB_KIND,
         collectionName: "",
       };
-    }
-
-    if (parsedUrl.hostname === ONE_TAB_EXTENSION_ID) {
-      return createCollectionClassification("OneTab");
     }
 
     const searchableText = normalizeSearchableText(

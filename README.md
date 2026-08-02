@@ -1,6 +1,8 @@
 # TabScroll Extension
 
-This branch contains the Firefox 140+ version of TabScroll. The Chromium version remains on the `release0.5` branch.
+This branch contains only the Firefox 140+ version of TabScroll. The Chromium version remains on the `release0.5` branch.
+
+The installable Firefox source lives in `extension/`. Generated ZIP and XPI packages are intentionally excluded from this branch.
 
 To load it temporarily in Firefox:
 
@@ -46,4 +48,4 @@ Privacy:
 - TabScroll does not send browsing data, screenshots, or analytics to any remote service.
 - Tab data is used locally in the browser to render, search, and update the tab switcher UI.
 - Preview images are processed locally and cached only for the current browser session.
-- See `PRIVACY.md` for the publishable policy text.
+- See [PRIVACY.md](PRIVACY.md) for the publishable policy text.

@@ -1,0 +1,5 @@
+# Generated Firefox packages belong in releases, not this source branch.
+*.zip
+*.xpi
+web-ext-artifacts/
+
