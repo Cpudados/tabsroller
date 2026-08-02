@@ -1,0 +1,11 @@
+{
+  "extensionName": {
+    "message": "TabScroll"
+  },
+  "extensionDescription": {
+    "message": "Un selector de pestañas a pantalla completa para buscar y gestionar pestañas en ventanas de Chrome con muchas pestañas."
+  },
+  "openTabScroll": {
+    "message": "Abrir TabScroll"
+  }
+}

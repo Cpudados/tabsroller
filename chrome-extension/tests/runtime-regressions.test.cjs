@@ -214,6 +214,51 @@ test("toolbar click and keyboard command use the same current overlay protocol",
   assert.notEqual(toggles[0].sessionId, toggles[1].sessionId);
 });
 
+test("selected UI language is persisted and updates the toolbar title", async () => {
+  const storedValues = [];
+  const actionTitles = [];
+  const harness = loadBackground({
+    action: {
+      async setTitle(details) {
+        actionTitles.push(details.title);
+      },
+    },
+    storage: {
+      local: {
+        async get() {
+          return {};
+        },
+        async set(value) {
+          storedValues.push(value);
+        },
+      },
+    },
+  });
+  const pending = harness.dispatch({
+    type: "tabscroll:set-language",
+    language: "tr-TR",
+  });
+
+  assert.equal(pending.keepsChannelOpen, true);
+  const response = await pending.response;
+  assert.equal(response.ok, true);
+  assert.equal(response.language, "tr");
+  assert.equal(storedValues.length, 1);
+  assert.equal(storedValues[0]["tabscroll:language"], "tr");
+  assert.deepEqual(actionTitles, ["TabScroll'u aç"]);
+
+  const spanishPending = harness.dispatch({
+    type: "tabscroll:set-language",
+    language: "es-MX",
+  });
+  const spanishResponse = await spanishPending.response;
+
+  assert.equal(spanishResponse.ok, true);
+  assert.equal(spanishResponse.language, "es");
+  assert.equal(storedValues[1]["tabscroll:language"], "es");
+  assert.equal(actionTitles[1], "Abrir TabScroll");
+});
+
 test("preview message keeps the service worker response open until capture completes", async () => {
   const tabs = makeTabs();
   let releaseScreenshot;

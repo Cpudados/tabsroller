@@ -17,6 +17,16 @@ const REQUEST_ALL_PREVIEWS_MESSAGE = "tabscroll:request-all-previews";
 const CANCEL_PREVIEW_CAPTURE_MESSAGE = "tabscroll:cancel-preview-capture";
 const PREVIEWS_UPDATED_MESSAGE = "tabscroll:previews-updated";
 const PREVIEW_CAPTURE_COMPLETE_MESSAGE = "tabscroll:preview-capture-complete";
+const SET_LANGUAGE_MESSAGE = "tabscroll:set-language";
+const LANGUAGE_STORAGE_KEY = "tabscroll:language";
+const ACTION_TITLES = {
+  en: "Open TabScroll",
+  "pt-BR": "Abrir o TabScroll",
+  es: "Abrir TabScroll",
+  fr: "Ouvrir TabScroll",
+  de: "TabScroll öffnen",
+  tr: "TabScroll'u aç",
+};
 const DEBUGGER_PROTOCOL_VERSION = "1.3";
 const PREVIEW_FORMAT = "jpeg";
 const PREVIEW_QUALITY = 65;
@@ -42,6 +52,8 @@ const previewCache = new Map();
 let previewCacheLoadPromise = null;
 let previewCachePersistPromise = Promise.resolve();
 let sessionSequence = 0;
+
+void restoreActionLanguage();
 
 chrome.tabs.onUpdated?.addListener?.((tabId, changeInfo) => {
   if (changeInfo.url || changeInfo.status === "loading") {
@@ -120,6 +132,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === SET_LANGUAGE_MESSAGE) {
+    void setActionLanguage(message.language)
+      .then((language) => sendResponse({ ok: true, language }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+
+    return true;
+  }
+
   if (message?.type === GET_SESSION_MESSAGE) {
     void getSessionForSender(sender, message.tabId, message.sessionId)
       .then((payload) => sendResponse({ ok: true, payload }))
@@ -149,6 +169,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
 });
+
+async function restoreActionLanguage() {
+  const localStorage = chrome.storage?.local;
+
+  if (!localStorage?.get) {
+    return;
+  }
+
+  try {
+    const stored = await localStorage.get(LANGUAGE_STORAGE_KEY);
+    const language = normalizeUiLanguage(stored?.[LANGUAGE_STORAGE_KEY], false);
+
+    if (language) {
+      await updateActionTitle(language);
+    }
+  } catch (_error) {
+    // The manifest-localized title remains available if storage cannot be read.
+  }
+}
+
+async function setActionLanguage(value) {
+  const language = normalizeUiLanguage(value, true);
+  const localStorage = chrome.storage?.local;
+
+  if (localStorage?.set) {
+    await localStorage.set({ [LANGUAGE_STORAGE_KEY]: language });
+  }
+
+  await updateActionTitle(language);
+  return language;
+}
+
+async function updateActionTitle(language) {
+  if (typeof chrome.action?.setTitle === "function") {
+    await chrome.action.setTitle({ title: ACTION_TITLES[language] });
+  }
+}
+
+function normalizeUiLanguage(value, useDefault) {
+  const normalized = String(value || "").trim().toLowerCase().replaceAll("_", "-");
+
+  if (normalized === "pt" || normalized.startsWith("pt-")) {
+    return "pt-BR";
+  }
+
+  for (const language of ["es", "fr", "de", "tr", "en"]) {
+    if (normalized === language || normalized.startsWith(`${language}-`)) {
+      return language;
+    }
+  }
+
+  return useDefault ? "en" : "";
+}
 
 async function openForActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -277,7 +350,7 @@ async function buildOverlayPayload(hostTab) {
         windowId: tab.windowId,
         index: tab.index,
         windowLabel: windowLabels.get(tab.windowId) || "Window",
-        title: truncateText(tab.title || "Untitled tab", MAX_TITLE_LENGTH),
+        title: truncateText(tab.title || "", MAX_TITLE_LENGTH),
         url: truncateText(tabUrl, MAX_URL_LENGTH),
         favicon: isCollection ? "" : normalizeFavicon(tab.favIconUrl),
         preview: isCollection
@@ -1162,7 +1235,7 @@ function normalizeUpdatedTab(tab) {
     id: tab.id,
     windowId: typeof tab.windowId === "number" ? tab.windowId : null,
     index: Number.isInteger(tab.index) ? tab.index : null,
-    title: truncateText(tab.title || "Untitled tab", MAX_TITLE_LENGTH),
+    title: truncateText(tab.title || "", MAX_TITLE_LENGTH),
     url: truncateText(tab.url || tab.pendingUrl || "", MAX_URL_LENGTH),
     active: Boolean(tab.active),
     pinned: Boolean(tab.pinned),

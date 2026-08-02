@@ -1,0 +1,11 @@
+{
+  "extensionName": {
+    "message": "TabScroll"
+  },
+  "extensionDescription": {
+    "message": "Kalabalık Chrome pencerelerindeki sekmeleri aramak ve yönetmek için tam ekran sekme değiştirici."
+  },
+  "openTabScroll": {
+    "message": "TabScroll'u aç"
+  }
+}

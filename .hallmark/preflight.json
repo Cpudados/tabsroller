@@ -1,0 +1,9 @@
+{
+  "scannedAt": "2026-08-02",
+  "framework": "vanilla Chrome extension",
+  "fontStack": "Bahnschrift/Aptos with Cascadia Mono",
+  "palette": "OKLCH Carbon Vermilion tokens",
+  "spacing": "4-point CSS custom-property scale",
+  "motion": "motion-cut with tokenized short state transitions",
+  "source": "chrome-extension/tokens.css"
+}

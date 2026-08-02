@@ -1,0 +1,11 @@
+{
+  "extensionName": {
+    "message": "TabScroll"
+  },
+  "extensionDescription": {
+    "message": "Ein Vollbild-Tabwechsler zum Suchen und Verwalten von Tabs in vollen Chrome-Fenstern."
+  },
+  "openTabScroll": {
+    "message": "TabScroll öffnen"
+  }
+}

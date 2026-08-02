@@ -1,0 +1,11 @@
+{
+  "extensionName": {
+    "message": "TabScroll"
+  },
+  "extensionDescription": {
+    "message": "Um alternador de abas em tela cheia para pesquisar e gerenciar abas em janelas do Chrome lotadas."
+  },
+  "openTabScroll": {
+    "message": "Abrir o TabScroll"
+  }
+}

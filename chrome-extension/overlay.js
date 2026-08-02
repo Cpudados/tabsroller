@@ -1,5 +1,6 @@
 (function () {
   const THEME_STORAGE_KEY = "tabscroll:theme";
+  const LANGUAGE_STORAGE_KEY = "tabscroll:language";
   const THEME_NIGHT = "night";
   const THEME_WHITE = "white";
   const WHEEL_THRESHOLD = 80;
@@ -7,8 +8,13 @@
   const WHEEL_LOCK_MS = CAROUSEL_MOTION_MS;
   const MAX_VISIBLE_DOTS = 15;
   const MAX_PREVIEW_REQUEST_TABS = 5;
+  const i18n = globalThis.TabScrollI18n;
   const app = document.getElementById("app");
   const storedTheme = readStoredTheme();
+  const storedLanguage = readStoredLanguage();
+  const browserLanguage = i18n.resolvePreferredLanguage(
+    navigator.languages?.length ? navigator.languages : navigator.language
+  );
   const systemThemeQuery =
     typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 
@@ -49,6 +55,9 @@
     wheelLockedUntil: 0,
     theme: storedTheme || (systemThemeQuery?.matches ? THEME_NIGHT : THEME_WHITE),
     themeLocked: Boolean(storedTheme),
+    language: storedLanguage || browserLanguage,
+    languagePickerState: "default",
+    languageFeedbackTimer: 0,
   };
 
   const icons = {
@@ -96,12 +105,14 @@
   chrome.runtime.onMessage.addListener(handleRuntimeMessage);
   document.addEventListener("click", handleClick);
   document.addEventListener("input", handleInput);
+  document.addEventListener("toggle", handlePopoverToggle, true);
   document.addEventListener("focusin", handleFocusIn);
   document.addEventListener("compositionstart", handleCompositionStart);
   document.addEventListener("compositionend", handleCompositionEnd);
   document.addEventListener("error", handleImageError, true);
   bindSystemThemeListener();
   applyTheme();
+  applyLanguage();
   render();
   void requestSession();
 
@@ -144,6 +155,10 @@
     const searchInput = isSearchInput(event.target);
 
     if (event.isComposing || state.searchComposing) {
+      return;
+    }
+
+    if (handleLanguageMenuKeyDown(event)) {
       return;
     }
 
@@ -278,6 +293,16 @@
     const actionElement = target.closest("[data-action]");
     if (actionElement) {
       const action = actionElement.getAttribute("data-action");
+
+      if (action === "toggle-language-menu") {
+        toggleLanguageMenu(actionElement);
+        return;
+      }
+
+      if (action === "set-language") {
+        void selectLanguage(actionElement.getAttribute("data-language"));
+        return;
+      }
 
       if (action === "toggle-theme") {
         toggleTheme();
@@ -465,12 +490,12 @@
       });
 
       if (!response?.ok) {
-        throw new Error(response?.error || "Could not activate this tab");
+        throw new Error(response?.error || t("activate_error"));
       }
 
       closeOverlay();
     } catch (error) {
-      showStatus(getActionError(error, "Could not activate this tab"));
+      showStatus(getActionError(error, t("activate_error")));
     }
   }
 
@@ -497,7 +522,7 @@
       });
 
       if (!response?.ok) {
-        throw new Error(response?.error || "Could not close this tab");
+        throw new Error(response?.error || t("close_tab_error"));
       }
 
       const latestSelectedTabId = state.selectedTabId;
@@ -514,18 +539,18 @@
       );
       render();
     } catch (error) {
-      showStatus(getActionError(error, "Could not close this tab"));
+      showStatus(getActionError(error, t("close_tab_error")));
     } finally {
       state.pendingActions.delete(actionKey);
     }
   }
 
   async function toggleSelectedPin() {
-    await updateSelectedTab("tabscroll:toggle-pin", "Could not update the pinned tab");
+    await updateSelectedTab("tabscroll:toggle-pin", t("pin_error"));
   }
 
   async function toggleSelectedMute() {
-    await updateSelectedTab("tabscroll:toggle-mute", "Could not update the tab audio");
+    await updateSelectedTab("tabscroll:toggle-mute", t("mute_error"));
   }
 
   async function updateSelectedTab(type, fallbackMessage) {
@@ -775,8 +800,8 @@
         '  <div class="ts-stage">',
         '    <div class="ts-loading">',
         '      <div class="ts-loading-spinner" aria-hidden="true"></div>',
-        '      <h2 class="ts-loading-title">Loading tabs</h2>',
-        '      <p class="ts-loading-copy">TabScroll is gathering your current window.</p>',
+        `      <h2 class="ts-loading-title">${t("loading_title")}</h2>`,
+        `      <p class="ts-loading-copy">${t("loading_copy")}</p>`,
         "    </div>",
         "  </div>",
         renderLiveStatus(),
@@ -792,9 +817,9 @@
         renderHeader(),
         '  <div class="ts-stage">',
         '    <div class="ts-empty">',
-        '      <h2>Could not load tabs</h2>',
-        `      <p>${escapeHtml(state.loadError)}</p>`,
-        '      <button type="button" data-action="close">Close</button>',
+        `      <h2>${t("load_error_title")}</h2>`,
+        `      <p>${t(state.loadError)}</p>`,
+        `      <button type="button" data-action="close">${t("close")}</button>`,
         "    </div>",
         "  </div>",
         renderLiveStatus(),
@@ -810,9 +835,9 @@
         renderHeader(),
         '  <div class="ts-stage">',
         '    <div class="ts-empty">',
-        "      <h2>No tabs available</h2>",
-        "      <p>TabScroll only works when there is at least one regular browser tab in the current window.</p>",
-        '      <button type="button" data-action="close">Close</button>',
+        `      <h2>${t("no_tabs_title")}</h2>`,
+        `      <p>${t("no_tabs_copy")}</p>`,
+        `      <button type="button" data-action="close">${t("close")}</button>`,
         "    </div>",
         "  </div>",
         renderLiveStatus(),
@@ -824,10 +849,10 @@
 
     if (!state.visibleTabs.length) {
       const noMatches = getSearchTokens().length > 0;
-      const heading = noMatches ? "No matching tabs" : "No tabs in this scope";
+      const heading = noMatches ? t("no_matches_title") : t("no_scope_title");
       const copy = noMatches
-        ? "Try another title, domain, or URL."
-        : "Switch to All Windows to browse tabs outside the current window.";
+        ? t("no_matches_copy")
+        : t("no_scope_copy");
 
       app.innerHTML = [
         '<div class="ts-shell" data-role="backdrop">',
@@ -837,8 +862,8 @@
         `      <h2>${heading}</h2>`,
         `      <p>${copy}</p>`,
         noMatches
-          ? '      <button type="button" data-action="clear-search">Clear search</button>'
-          : '      <button type="button" data-action="set-scope" data-scope="all">Show all windows</button>',
+          ? `      <button type="button" data-action="clear-search">${t("clear_search")}</button>`
+          : `      <button type="button" data-action="set-scope" data-scope="all">${t("show_all_windows")}</button>`,
         "    </div>",
         "  </div>",
         renderCounter(),
@@ -881,15 +906,16 @@
       `    <div class="ts-brand-badge">${icons.app}</div>`,
       '    <div class="ts-brand-copy">',
       '      <h1 class="ts-brand-title">TabScroll</h1>',
-      '      <p class="ts-brand-subtitle">Spatial tab index</p>',
+      `      <p class="ts-brand-subtitle">${t("brand_subtitle")}</p>`,
       "    </div>",
       "  </div>",
       renderHeaderControls(),
       '  <div class="ts-actions">',
+      renderLanguagePicker(),
       renderThemeToggle(),
       '    <button class="ts-key-button" type="button" data-action="close">',
       '      <span class="ts-key">Esc</span>',
-      "      <span>to close</span>",
+      `      <span>${t("close_hint")}</span>`,
       "    </button>",
       "  </div>",
       "</header>",
@@ -902,20 +928,20 @@
     const scopeCount = getScopedSourceTabs(state.scope).length;
     const resultCount = state.visibleTabs.length;
     const searchCount = getSearchTokens().length
-      ? `${resultCount} of ${scopeCount}`
+      ? t("search_count", { result: resultCount, scope: scopeCount })
       : `${scopeCount}`;
     const query = escapeHtml(state.query);
 
     return [
       '  <div class="ts-header-controls">',
       '    <div class="ts-search" role="search">',
-      `      <input class="ts-search-input" data-role="search" type="search" value="${query}" placeholder="Search title, domain, or URL" aria-label="Search tabs" autocomplete="off" spellcheck="false">`,
+      `      <input class="ts-search-input" data-role="search" type="search" value="${query}" placeholder="${t("search_placeholder")}" aria-label="${t("search_aria")}" autocomplete="off" spellcheck="false">`,
       `      <span class="ts-search-count" aria-hidden="true">${searchCount}</span>`,
-      `      <button class="ts-search-clear" type="button" data-action="clear-search" aria-label="Clear tab search"${state.query ? "" : " hidden"}>Clear</button>`,
+      `      <button class="ts-search-clear" type="button" data-action="clear-search" aria-label="${t("clear_search")}"${state.query ? "" : " hidden"}>${t("clear")}</button>`,
       "    </div>",
-      '    <div class="ts-scope-toggle" role="group" aria-label="Choose which browser windows to show tabs from">',
-      renderScopeOption("current", "Tabs in this window", currentCount),
-      renderScopeOption("all", "Tabs in all windows", allCount),
+      `    <div class="ts-scope-toggle" role="group" aria-label="${t("scope_aria")}">`,
+      renderScopeOption("current", t("tabs_this_window"), currentCount),
+      renderScopeOption("all", t("tabs_all_windows"), allCount),
       "    </div>",
       "  </div>",
     ].join("");
@@ -926,7 +952,7 @@
     return [
       `      <button class="ts-scope-option${selected ? " is-active" : ""}" type="button" data-action="set-scope" data-scope="${scope}" aria-pressed="${selected}">`,
       `        <span>${label}</span>`,
-      `        <span class="ts-scope-count" aria-label="${count} tabs">${count}</span>`,
+      `        <span class="ts-scope-count" aria-label="${t("tab_count", { count })}">${count}</span>`,
       "      </button>",
     ].join("");
   }
@@ -941,40 +967,284 @@
     ].join("");
   }
 
-  function renderThemeToggle() {
-    const nextTheme = state.theme === THEME_NIGHT ? THEME_WHITE : THEME_NIGHT;
-    const nextThemeLabel = nextTheme === THEME_NIGHT ? "dark" : "light";
+  function renderLanguagePicker() {
+    const activeLanguage = i18n.getLanguageOption(state.language);
+    const statusIcon =
+      state.languagePickerState === "loading"
+        ? '<span class="ts-language-spinner" aria-hidden="true"></span>'
+        : state.languagePickerState === "success"
+        ? '<span class="ts-language-feedback ts-language-feedback--success" aria-hidden="true">✓</span>'
+        : state.languagePickerState === "error"
+        ? '<span class="ts-language-feedback ts-language-feedback--error" aria-hidden="true">!</span>'
+        : '<span class="ts-language-chevron" aria-hidden="true">▾</span>';
+    const statusMessage =
+      state.languagePickerState === "loading"
+        ? t("language_loading")
+        : state.languagePickerState === "success"
+        ? t("language_success")
+        : state.languagePickerState === "error"
+        ? t("language_error")
+        : "";
+    const options = i18n.LANGUAGE_OPTIONS.map(
+      ({ code, shortLabel, label, flagAsset }) => {
+        const selected = code === state.language;
+        return [
+          `      <button class="ts-language-option${selected ? " is-selected" : ""}" type="button" role="menuitemradio" aria-checked="${selected}" data-action="set-language" data-language="${code}">`,
+          `        <img class="ts-language-flag" src="${flagAsset}" alt="" aria-hidden="true">`,
+          '        <span class="ts-language-option-copy">',
+          `          <strong>${label}</strong>`,
+          `          <span>${shortLabel}</span>`,
+          "        </span>",
+          `        <span class="ts-language-check" aria-hidden="true">${selected ? "✓" : ""}</span>`,
+          "      </button>",
+        ].join("");
+      }
+    ).join("");
 
     return [
-      `    <button class="ts-theme-toggle" type="button" data-action="toggle-theme" aria-label="Switch to ${nextThemeLabel} mode">`,
+      '    <div class="ts-language-picker">',
+      `      <button class="ts-language-trigger" type="button" data-action="toggle-language-menu" data-state="${state.languagePickerState}" aria-busy="${state.languagePickerState === "loading"}" aria-haspopup="menu" aria-controls="ts-language-menu" aria-expanded="false" aria-label="${t("language_label")}: ${activeLanguage.label}">`,
+      `        <img class="ts-language-flag" src="${activeLanguage.flagAsset}" alt="" aria-hidden="true">`,
+      `        <span class="ts-language-active-name">${activeLanguage.label}</span>`,
+      `        <span class="ts-language-code" aria-hidden="true">${activeLanguage.shortLabel}</span>`,
+      `        <span class="ts-language-status-icon">${statusIcon}</span>`,
+      "      </button>",
+      `      <div class="ts-language-menu" id="ts-language-menu" popover="auto" role="menu" aria-label="${t("language_label")}">`,
+      `        <div class="ts-language-menu-title">${t("language_label")}</div>`,
+      options,
+      "      </div>",
+      `      <span class="ts-sr-status" aria-live="polite">${statusMessage}</span>`,
+      "    </div>",
+    ].join("");
+  }
+
+  function handlePopoverToggle(event) {
+    if (!(event.target instanceof HTMLElement) || event.target.id !== "ts-language-menu") {
+      return;
+    }
+
+    const trigger = document.querySelector('[data-action="toggle-language-menu"]');
+
+    if (trigger) {
+      trigger.setAttribute("aria-expanded", String(event.newState === "open"));
+    }
+  }
+
+  function handleLanguageMenuKeyDown(event) {
+    const target = event.target;
+
+    if (!(target instanceof Element)) {
+      return false;
+    }
+
+    const menu = document.getElementById("ts-language-menu");
+    const trigger = target.closest('[data-action="toggle-language-menu"]');
+    const option = target.closest('[data-action="set-language"]');
+
+    if (event.key === "Escape" && isLanguageMenuOpen(menu)) {
+      event.preventDefault();
+      closeLanguageMenu(menu);
+      document.querySelector('[data-action="toggle-language-menu"]')?.focus();
+      return true;
+    }
+
+    if (event.key === "Tab" && isLanguageMenuOpen(menu)) {
+      closeLanguageMenu(menu);
+      return false;
+    }
+
+    if (trigger && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      openLanguageMenu(trigger, event.key === "ArrowUp" ? "last" : state.language);
+      return true;
+    }
+
+    if (!option || !isLanguageMenuOpen(menu)) {
+      return false;
+    }
+
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      return false;
+    }
+
+    event.preventDefault();
+    const options = Array.from(menu.querySelectorAll('[data-action="set-language"]'));
+    const currentIndex = options.indexOf(option);
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+        ? options.length - 1
+        : (currentIndex + (event.key === "ArrowUp" ? -1 : 1) + options.length) % options.length;
+    options[nextIndex]?.focus();
+    return true;
+  }
+
+  function toggleLanguageMenu(trigger) {
+    const menu = document.getElementById("ts-language-menu");
+
+    if (!menu) {
+      return;
+    }
+
+    if (isLanguageMenuOpen(menu)) {
+      closeLanguageMenu(menu);
+      return;
+    }
+
+    openLanguageMenu(trigger, state.language);
+  }
+
+  function openLanguageMenu(trigger, focusTarget) {
+    const menu = document.getElementById("ts-language-menu");
+
+    if (!menu || isLanguageMenuOpen(menu)) {
+      return;
+    }
+
+    if (typeof menu.showPopover === "function") {
+      menu.showPopover();
+    } else {
+      menu.dataset.open = "true";
+    }
+
+    positionLanguageMenu(trigger, menu);
+    window.requestAnimationFrame(() => {
+      positionLanguageMenu(trigger, menu);
+      const selector =
+        focusTarget === "last"
+          ? '[data-action="set-language"]:last-of-type'
+          : `[data-action="set-language"][data-language="${focusTarget}"]`;
+      menu.querySelector(selector)?.focus();
+    });
+  }
+
+  function closeLanguageMenu(menu = document.getElementById("ts-language-menu")) {
+    if (!menu) {
+      return;
+    }
+
+    if (typeof menu.hidePopover === "function" && menu.matches(":popover-open")) {
+      menu.hidePopover();
+    }
+
+    delete menu.dataset.open;
+  }
+
+  function isLanguageMenuOpen(menu) {
+    return Boolean(
+      menu &&
+        ((typeof menu.showPopover === "function" && menu.matches(":popover-open")) ||
+          menu.dataset.open === "true")
+    );
+  }
+
+  function positionLanguageMenu(trigger, menu) {
+    if (!trigger || !menu) {
+      return;
+    }
+
+    const viewportGap = 8;
+    const controlGap = 8;
+    const triggerBounds = trigger.getBoundingClientRect();
+    const menuWidth = menu.offsetWidth || 240;
+    const menuHeight = menu.offsetHeight || 320;
+    const left = Math.max(
+      viewportGap,
+      Math.min(triggerBounds.right - menuWidth, window.innerWidth - menuWidth - viewportGap)
+    );
+    const openAbove = triggerBounds.bottom + controlGap + menuHeight > window.innerHeight - viewportGap;
+    const top = openAbove
+      ? Math.max(viewportGap, triggerBounds.top - menuHeight - controlGap)
+      : triggerBounds.bottom + controlGap;
+
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(top)}px`;
+  }
+
+  async function selectLanguage(value) {
+    const language = i18n.normalizeLanguage(value);
+    state.language = language;
+    state.languagePickerState = "loading";
+    window.clearTimeout(state.languageFeedbackTimer);
+    applyLanguage();
+    render();
+    focusLanguageTrigger();
+
+    try {
+      await persistLanguage(language);
+      state.languagePickerState = "success";
+    } catch (_error) {
+      state.languagePickerState = "error";
+    }
+
+    render();
+    focusLanguageTrigger();
+    state.languageFeedbackTimer = window.setTimeout(() => {
+      state.languagePickerState = "default";
+      resetLanguagePickerFeedback();
+    }, 1600);
+  }
+
+  function resetLanguagePickerFeedback() {
+    const trigger = document.querySelector(".ts-language-trigger");
+    const statusIcon = document.querySelector(".ts-language-status-icon");
+    const status = document.querySelector(".ts-language-picker .ts-sr-status");
+
+    if (trigger) {
+      trigger.dataset.state = "default";
+      trigger.setAttribute("aria-busy", "false");
+    }
+
+    if (statusIcon) {
+      statusIcon.innerHTML = '<span class="ts-language-chevron" aria-hidden="true">&#9662;</span>';
+    }
+
+    if (status) {
+      status.textContent = "";
+    }
+  }
+
+  function focusLanguageTrigger() {
+    window.requestAnimationFrame(() => {
+      document.querySelector('[data-action="toggle-language-menu"]')?.focus();
+    });
+  }
+
+  function renderThemeToggle() {
+    const nextTheme = state.theme === THEME_NIGHT ? THEME_WHITE : THEME_NIGHT;
+    const nextThemeLabel = nextTheme === THEME_NIGHT ? "switch_to_dark" : "switch_to_light";
+
+    return [
+      `    <button class="ts-theme-toggle" type="button" data-action="toggle-theme" aria-label="${t(nextThemeLabel)}">`,
       `      <span class="ts-theme-toggle-track" data-theme="${state.theme}" aria-hidden="true">`,
       '        <span class="ts-theme-toggle-thumb"></span>',
-      `        <span class="ts-theme-toggle-option ts-theme-toggle-option--night">${icons.moon}<span>Dark</span></span>`,
-      `        <span class="ts-theme-toggle-option ts-theme-toggle-option--white">${icons.sun}<span>Light</span></span>`,
+      `        <span class="ts-theme-toggle-option ts-theme-toggle-option--night">${icons.moon}<span>${t("dark")}</span></span>`,
+      `        <span class="ts-theme-toggle-option ts-theme-toggle-option--white">${icons.sun}<span>${t("light")}</span></span>`,
       "      </span>",
       "    </button>",
     ].join("");
   }
 
   function renderCard(tab, index, position, offset) {
-    const title = escapeHtml(tab.title || "Untitled tab");
+    const title = escapeHtml(tab.title || t("untitled_tab"));
     const isCollection = tab.kind === "tab-collection";
-    const collectionName = escapeHtml(tab.collectionName || tab.title || "Tab collection");
+    const collectionName = escapeHtml(tab.collectionName || tab.title || t("tab_collection"));
     const url = isCollection
-      ? "Saved-tab collection"
+      ? t("saved_tab_collection")
       : escapeHtml(formatUrl(tab.url || ""));
     const preview = sanitizeAssetUrl(tab.preview);
     const previewFallback = getPreviewFallback(tab);
     const favicon = sanitizeAssetUrl(tab.favicon);
     const cardIcon = isCollection ? renderCollectionIcon() : renderFavicon(favicon);
     const selected = index === state.activeIndex;
-    const selectedLabel = isCollection ? "Collection in focus" : "Tab in focus";
+    const selectedLabel = isCollection ? t("collection_in_focus") : t("tab_in_focus");
     const badgeDescriptors = getBadgeDescriptors(tab);
     const badges = renderBadges(tab);
     const ariaLabel = escapeHtml(
       [
-        tab.title || "Untitled tab",
-        isCollection ? "tab collection" : "",
+        tab.title || t("untitled_tab"),
+        isCollection ? t("tab_collection") : "",
         ...badgeDescriptors.map(({ label }) => label),
         selected ? selectedLabel : "",
       ]
@@ -993,7 +1263,7 @@
       isCollection
         ? renderCollectionPreview(collectionName)
         : preview
-        ? `      <img src="${preview}" alt="Preview of ${title}" data-role="preview" data-tab-id="${tab.id}">`
+        ? `      <img src="${preview}" alt="${t("preview_alt", { title })}" data-role="preview" data-tab-id="${tab.id}">`
         : [
             `      <div class="ts-preview-fallback" data-state="${previewFallback.state}">`,
             '        <div class="ts-preview-fallback-inner">',
@@ -1036,18 +1306,18 @@
       tab.kind === "tab-collection" ||
       !isPreviewCandidateUrl(tab.url || "")
     ) {
-      return { state: "unavailable", label: "No preview available" };
+      return { state: "unavailable", label: t("no_preview") };
     }
 
     if (state.previewPendingTabIds.has(tab.id)) {
-      return { state: "loading", label: "Loading preview" };
+      return { state: "loading", label: t("loading_preview") };
     }
 
     if (state.previewAttemptedTabIds.has(tab.id)) {
-      return { state: "unavailable", label: "Preview unavailable" };
+      return { state: "unavailable", label: t("preview_unavailable") };
     }
 
-    return { state: "loading", label: "Loading preview" };
+    return { state: "loading", label: t("loading_preview") };
   }
 
   function renderCollectionPreview(collectionName) {
@@ -1060,9 +1330,9 @@
       `          <span class="ts-collection-symbol">${icons.collection}</span>`,
       "        </div>",
       '        <div class="ts-collection-copy">',
-      '          <span class="ts-collection-eyebrow">Tab collection detected</span>',
-      "          <strong>Saved tabs live inside this page</strong>",
-      `          <span>Open ${collectionName} to browse or restore them.</span>`,
+      `          <span class="ts-collection-eyebrow">${t("collection_detected")}</span>`,
+      `          <strong>${t("collection_title")}</strong>`,
+      `          <span>${t("collection_open", { name: collectionName })}</span>`,
       "        </div>",
       "      </div>",
     ].join("");
@@ -1076,7 +1346,7 @@
       dotIndexes
         .map((index) => {
           const className = index === state.activeIndex ? "ts-dot is-active" : "ts-dot";
-          return `<button class="${className}" type="button" data-role="dot" data-index="${index}" aria-label="Go to tab ${index + 1}"></button>`;
+          return `<button class="${className}" type="button" data-role="dot" data-index="${index}" aria-label="${t("go_to_tab", { number: index + 1 })}"></button>`;
         })
         .join(""),
       "</div>",
@@ -1099,14 +1369,14 @@
       return "";
     }
 
-    const title = escapeHtml(tab.title || "Untitled tab");
+    const title = escapeHtml(tab.title || t("untitled_tab"));
     const favicon = sanitizeAssetUrl(tab.favicon);
     const recency = escapeHtml(formatRecency(tab.lastAccessed));
 
     return [
       '<button class="ts-recent" type="button" data-action="activate-recent">',
       `  <span class="ts-recent-icon">${icons.return}</span>`,
-      '  <span class="ts-recent-context">Back to</span>',
+      `  <span class="ts-recent-context">${t("back_to")}</span>`,
       `  <span class="ts-recent-favicon">${renderFavicon(favicon)}</span>`,
       '  <span class="ts-recent-copy">',
       `    <strong>${title}</strong>`,
@@ -1133,27 +1403,27 @@
     const badges = [];
 
     if (tab.duplicate) {
-      badges.push({ kind: "duplicate", label: "Duplicate" });
+      badges.push({ kind: "duplicate", label: t("duplicate") });
     }
 
     if (tab.pinned) {
-      badges.push({ kind: "pinned", label: "Pinned" });
+      badges.push({ kind: "pinned", label: t("pinned") });
     }
 
     if (tab.audible && !tab.muted) {
-      badges.push({ kind: "audio", label: "Audio" });
+      badges.push({ kind: "audio", label: t("audio") });
     }
 
     if (tab.muted) {
-      badges.push({ kind: "muted", label: "Muted" });
+      badges.push({ kind: "muted", label: t("muted") });
     }
 
     if (tab.discarded) {
-      badges.push({ kind: "discarded", label: "Sleeping" });
+      badges.push({ kind: "discarded", label: t("sleeping") });
     }
 
     if (state.scope === "all" && tab.windowLabel) {
-      badges.push({ kind: "window", label: tab.windowLabel });
+      badges.push({ kind: "window", label: getLocalizedWindowLabel(tab) });
     }
 
     return badges;
@@ -1163,17 +1433,26 @@
     return `<span class="ts-card-badge ts-card-badge--${kind}">${escapeHtml(label)}</span>`;
   }
 
+  function getLocalizedWindowLabel(tab) {
+    if (tab.windowId === state.currentWindowId) {
+      return t("current_window");
+    }
+
+    const windowNumber = Number.isInteger(tab._windowOrder) ? tab._windowOrder + 1 : 2;
+    return t("window_number", { number: windowNumber });
+  }
+
   function renderHint() {
     const shortcutKeys = getShortcutKeys();
     const contextualHints = state.searchActive
       ? [
           '  <div class="ts-hint-row">',
           '    <div class="ts-hint-keys">',
-          '      <span class="ts-key">Type</span>',
+          `      <span class="ts-key">${t("type_key")}</span>`,
           '      <span class="ts-key">⌫</span>',
           '      <span class="ts-key">Esc</span>',
           "    </div>",
-          '    <span class="ts-hint-copy">search, edit, or exit search</span>',
+          `    <span class="ts-hint-copy">${t("hint_search")}</span>`,
           "  </div>",
         ].join("")
       : [
@@ -1181,7 +1460,7 @@
           '    <div class="ts-hint-keys">',
           '      <span class="ts-key">T</span>',
           "    </div>",
-          '    <span class="ts-hint-copy">to switch theme</span>',
+          `    <span class="ts-hint-copy">${t("hint_theme")}</span>`,
           "  </div>",
           getRecentTab()
             ? [
@@ -1189,7 +1468,7 @@
                 '    <div class="ts-hint-keys">',
                 '      <span class="ts-key">R</span>',
                 "    </div>",
-                '    <span class="ts-hint-copy">to jump back</span>',
+                `    <span class="ts-hint-copy">${t("hint_jump_back")}</span>`,
                 "  </div>",
               ].join("")
             : "",
@@ -1201,7 +1480,7 @@
       '    <div class="ts-hint-keys">',
       shortcutKeys.map((key) => `      <span class="ts-key">${escapeHtml(key)}</span>`).join(""),
       "    </div>",
-      '    <span class="ts-hint-copy">to open</span>',
+      `    <span class="ts-hint-copy">${t("hint_open")}</span>`,
       "  </div>",
       contextualHints,
       '  <div class="ts-hint-row">',
@@ -1210,7 +1489,7 @@
       state.searchActive ? "" : '      <span class="ts-key">P</span>',
       state.searchActive ? "" : '      <span class="ts-key">M</span>',
       "    </div>",
-      `    <span class="ts-hint-copy">${state.searchActive ? "to close" : "close, pin, or mute"}</span>`,
+      `    <span class="ts-hint-copy">${state.searchActive ? t("hint_close") : t("hint_actions")}</span>`,
       "  </div>",
       '  <div class="ts-hint-row">',
       '    <div class="ts-hint-keys">',
@@ -1218,7 +1497,7 @@
       '      <span class="ts-key">&rarr;</span>',
       '      <span class="ts-key">Enter</span>',
       "    </div>",
-      '    <span class="ts-hint-copy">or scroll to navigate</span>',
+      `    <span class="ts-hint-copy">${t("hint_navigate")}</span>`,
       "  </div>",
       "</div>",
     ].join("");
@@ -1602,26 +1881,26 @@
 
   function formatRecency(value) {
     if (!Number.isFinite(value)) {
-      return "Recently active";
+      return t("recently_active");
     }
 
     const elapsedMinutes = Math.max(0, Math.floor((Date.now() - value) / 60000));
 
     if (elapsedMinutes < 1) {
-      return "Active just now";
+      return t("active_just_now");
     }
 
     if (elapsedMinutes < 60) {
-      return `Active ${elapsedMinutes}m ago`;
+      return t("active_minutes_ago", { count: elapsedMinutes });
     }
 
     const elapsedHours = Math.floor(elapsedMinutes / 60);
 
     if (elapsedHours < 24) {
-      return `Active ${elapsedHours}h ago`;
+      return t("active_hours_ago", { count: elapsedHours });
     }
 
-    return "Active earlier";
+    return t("active_earlier");
   }
 
   function focusOverlay() {
@@ -1649,7 +1928,7 @@
       });
 
       if (!response?.ok) {
-        throw new Error(response?.error || "Failed to load session");
+        throw new Error(response?.error || t("session_load_error"));
       }
 
       const payloadTabs = Array.isArray(response.payload?.tabs) ? response.payload.tabs : [];
@@ -1703,7 +1982,7 @@
       state.previewRefreshPending = false;
       state.previewPendingTabIds.clear();
       state.loading = false;
-      state.loadError = "The browser did not return the tab session. Close TabScroll and try again.";
+      state.loadError = "session_load_error";
       render();
     }
   }
@@ -1741,10 +2020,10 @@
       });
 
       if (!response?.ok) {
-        throw new Error(response?.error || "Failed to capture previews");
+        throw new Error(response?.error || t("preview_capture_error"));
       }
     } catch (error) {
-      showStatus(getActionError(error, "Some previews could not be loaded"));
+      showStatus(getActionError(error, t("preview_partial_error")));
     } finally {
       finishPreviewCapture(requestId);
     }
@@ -1822,7 +2101,7 @@
 
   function formatUrl(value) {
     if (!value) {
-      return "No URL available";
+      return t("no_url");
     }
 
     try {
@@ -1855,6 +2134,52 @@
     }
 
     return "";
+  }
+
+  function t(key, variables) {
+    return i18n.translate(state.language, key, variables);
+  }
+
+  function applyLanguage() {
+    const language = i18n.getLanguageOption(state.language);
+    document.documentElement.lang = language.code;
+    document.documentElement.dir = language.direction;
+  }
+
+  async function persistLanguage(language) {
+    const normalizedLanguage = i18n.normalizeLanguage(language);
+    let preferenceStored = false;
+    let toolbarUpdated = false;
+
+    try {
+      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, normalizedLanguage);
+      preferenceStored = true;
+    } catch (_error) {
+      // Storage is optional for the overlay.
+    }
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "tabscroll:set-language",
+        language: normalizedLanguage,
+      });
+      toolbarUpdated = Boolean(response?.ok);
+    } catch (_error) {
+      // The overlay preference still works if the toolbar title cannot be updated.
+    }
+
+    if (!preferenceStored && !toolbarUpdated) {
+      throw new Error("Language preference could not be saved");
+    }
+  }
+
+  function readStoredLanguage() {
+    try {
+      const value = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+      return value ? i18n.normalizeLanguage(value) : "";
+    } catch (_error) {
+      return "";
+    }
   }
 
   function persistTheme(theme) {

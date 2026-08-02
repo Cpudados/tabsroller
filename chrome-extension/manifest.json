@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "TabScroll",
-  "version": "0.2.1",
-  "description": "A full-screen tab switcher for searching and managing tabs across crowded Chrome windows.",
+  "name": "__MSG_extensionName__",
+  "version": "0.3.0",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "en",
   "permissions": [
     "tabs",
     "activeTab",
@@ -19,7 +20,7 @@
       "32": "icons/tabscroll-32.png",
       "48": "icons/tabscroll-48.png"
     },
-    "default_title": "Open TabScroll"
+    "default_title": "__MSG_openTabScroll__"
   },
   "commands": {
     "toggle-tabscroll": {
@@ -27,7 +28,7 @@
         "default": "Ctrl+Shift+K",
         "mac": "Command+Shift+K"
       },
-      "description": "Open TabScroll"
+      "description": "__MSG_openTabScroll__"
     }
   },
   "web_accessible_resources": [

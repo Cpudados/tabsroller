@@ -1,0 +1,11 @@
+{
+  "extensionName": {
+    "message": "TabScroll"
+  },
+  "extensionDescription": {
+    "message": "Un sélecteur d’onglets en plein écran pour rechercher et gérer les onglets dans les fenêtres Chrome chargées."
+  },
+  "openTabScroll": {
+    "message": "Ouvrir TabScroll"
+  }
+}

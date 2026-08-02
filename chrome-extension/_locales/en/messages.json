@@ -1,0 +1,11 @@
+{
+  "extensionName": {
+    "message": "TabScroll"
+  },
+  "extensionDescription": {
+    "message": "A full-screen tab switcher for searching and managing tabs across crowded Chrome windows."
+  },
+  "openTabScroll": {
+    "message": "Open TabScroll"
+  }
+}
